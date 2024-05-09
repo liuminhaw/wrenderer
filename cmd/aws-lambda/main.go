@@ -13,8 +13,7 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 
-	// "github.com/liuminhaw/renderer"
-	"github.com/liuminhaw/wrenderer/renderer"
+	"github.com/liuminhaw/renderer"
 )
 
 func HttpHandler(w http.ResponseWriter, r *http.Request) {
@@ -28,12 +27,8 @@ func HttpHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Render the page
 	browserContext := renderer.BrowserContext{
-		// BrowserExecPath: "/home/haw/Programs/headless-chromium/chromium",
-		NoSandbox:       true,
-		DebugMode:       true,
-		// SingleProcess: true,
-		// NoSandbox:       false,
-		// DebugMode:       true,
+		DebugMode: true,
+		Container: false,
 	}
 	rendererContext := renderer.RendererContext{
 		Headless:       false,
@@ -70,10 +65,8 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 
 	// Render the page
 	browserContext := renderer.BrowserContext{
-		// BrowserExecPath: "/home/haw/Programs/headless-chromium/chromium",
-		// BrowserExecPath: "chromium",
-		NoSandbox:       true,
-		DebugMode:       true,
+		DebugMode: true,
+		Container: true,
 		// SingleProcess:   true,
 	}
 	rendererContext := renderer.RendererContext{
@@ -105,10 +98,6 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 	newContext := regexpBase64.ReplaceAllString(string(context), `""`)
 	newContext = regexpSVG.ReplaceAllString(newContext, `<svg></svg>`)
 
-	// chromiumLog()
-	// fmt.Println("Cleaning up temporary directories...")
-	// cleanTmp("/tmp", "chromedp")
-
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
 		Body:       string(context),
@@ -119,18 +108,13 @@ func main() {
 	// Start a HTTP server
 	http.HandleFunc("/", HttpHandler)
 
-    if _, exists := os.LookupEnv("AWS_LAMBDA_RUNTIME_API"); exists {
-        fmt.Println("Running in AWS Lambda custom image")
-        lambda.Start(LambdaHandler)
-    } else {
-        fmt.Println("Running in local")
-        log.Fatal(http.ListenAndServe(":8080", nil))
-    }
-	// log.Fatal(http.ListenAndServe(":8080", nil))
-	// lambda.Start(LambdaHandler)
-	//    chromiumLog()
-	//    fmt.Println("Cleaning up temporary directories...")
-	// cleanTmp("/tmp", "chromedp")
+	if _, exists := os.LookupEnv("AWS_LAMBDA_RUNTIME_API"); exists {
+		fmt.Println("Running in AWS Lambda custom image")
+		lambda.Start(LambdaHandler)
+	} else {
+		fmt.Println("Running in local")
+		log.Fatal(http.ListenAndServe(":8080", nil))
+	}
 }
 
 func cleanTmp(baseDir string, prefix string) error {
@@ -166,7 +150,7 @@ func chromiumLog() {
 
 	// Step 2: Extract the directory from the command path
 	chromiumDir := filepath.Dir(chromiumPath)
-    fmt.Println("chromiumDir: ", chromiumDir)
+	fmt.Println("chromiumDir: ", chromiumDir)
 
 	// Step 3: List the files in the directory
 	files, err := os.ReadDir(chromiumDir)
