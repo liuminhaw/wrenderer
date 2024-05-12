@@ -1,5 +1,8 @@
 # Wrenderer
 
+## Note
+url passed to `url` parameter should be encoded for parsing to work correctly
+
 ## Build image
 ```bash
 docker build -t image-name:tag .

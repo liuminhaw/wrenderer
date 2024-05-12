@@ -6,8 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -98,6 +96,9 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 	newContext := regexpBase64.ReplaceAllString(string(context), `""`)
 	newContext = regexpSVG.ReplaceAllString(newContext, `<svg></svg>`)
 
+    // TODO: Upload rendered result to S3
+    // TODO: Return S3 URL for modify request settings
+
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
 		Body:       string(context),
@@ -105,75 +106,12 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 }
 
 func main() {
-	// Start a HTTP server
-	http.HandleFunc("/", HttpHandler)
-
 	if _, exists := os.LookupEnv("AWS_LAMBDA_RUNTIME_API"); exists {
 		fmt.Println("Running in AWS Lambda custom image")
 		lambda.Start(LambdaHandler)
 	} else {
-		fmt.Println("Running in local")
+		fmt.Println("server listening on 8080 port")
+		http.HandleFunc("/render/", HttpHandler)
 		log.Fatal(http.ListenAndServe(":8080", nil))
 	}
-}
-
-func cleanTmp(baseDir string, prefix string) error {
-	// Walk the base directory to find directories that match the prefix
-	err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return fmt.Errorf("cleanTmp: walk: %w", err)
-		}
-		if info.IsDir() && filepath.Base(path)[:len(prefix)] == prefix {
-			// Found a directory that matches the prefix; attempt to remove it
-			if err := os.RemoveAll(path); err != nil {
-				// Handle the error if the directory cannot be removed
-				return fmt.Errorf("cleanTmp: walk: %w", err)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		// Handle any errors that occurred during the walk
-		return fmt.Errorf("cleanTmp: %w", err)
-	}
-
-	return nil
-}
-
-func chromiumLog() {
-	// Step 1: Find the path of the 'chromium' command
-	chromiumPath, err := exec.LookPath("chromium")
-	if err != nil {
-		fmt.Println("Error finding 'chromium':", err)
-		return
-	}
-
-	// Step 2: Extract the directory from the command path
-	chromiumDir := filepath.Dir(chromiumPath)
-	fmt.Println("chromiumDir: ", chromiumDir)
-
-	// Step 3: List the files in the directory
-	files, err := os.ReadDir(chromiumDir)
-	if err != nil {
-		fmt.Println("Error reading directory:", err)
-		return
-	}
-
-	// Step 4: Check for 'chrome_debug.log' and display its contents
-	for _, file := range files {
-		fmt.Printf("file: %s\n", file.Name())
-		if file.Name() == "chrome_debug.log" {
-			fmt.Println("'chrome_debug.log' found. Displaying contents:")
-			logPath := filepath.Join(chromiumDir, "chrome_debug.log")
-			content, err := os.ReadFile(logPath)
-			if err != nil {
-				fmt.Println("Error reading file:", err)
-				return
-			}
-			fmt.Println(string(content))
-			return
-		}
-	}
-
-	fmt.Println("'chrome_debug.log' not found in the directory.")
 }
