@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,9 +14,11 @@ import (
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/liuminhaw/renderer"
 )
 
@@ -23,6 +26,18 @@ type responseData struct {
 	Host      string `json:"host"`
 	Port      string `json:"port"`
 	ObjectKey string `json:"objectKey"`
+}
+
+func (rd responseData) getObjectPath() string {
+	var objectPath string
+	if rd.Port != "" {
+		objectPath = strings.Join([]string{rd.Host, rd.Port}, "_")
+		objectPath = strings.Join([]string{objectPath, rd.ObjectKey}, "/")
+	} else {
+		objectPath = strings.Join([]string{rd.Host, rd.ObjectKey}, "/")
+	}
+
+    return objectPath
 }
 
 func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
@@ -57,50 +72,54 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 		ObjectKey: objectKey,
 	}
 
-	// Render the page
-	browserContext := renderer.BrowserContext{
-		DebugMode: true,
-		Container: true,
-		// SingleProcess:   true,
-	}
-	rendererContext := renderer.RendererContext{
-		Headless:       true,
-		WindowWidth:    1000,
-		WindowHeight:   1000,
-		Timeout:        30,
-		ImageLoad:      true,
-		SkipFrameCount: 0,
-	}
-	ctx := context.Background()
-	ctx = renderer.WithBrowserContext(ctx, &browserContext)
-	ctx = renderer.WithRendererContext(ctx, &rendererContext)
-
-	content, err := renderer.RenderPage(ctx, urlParam)
+	// Check if object exists
+	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
-		log.Printf("Render Failed: %s", err)
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
-			Body:       "Render Failed",
+			Body:       fmt.Sprintf("Failed to load config: %s", err),
+		}, nil
+	}
+	client := s3.NewFromConfig(cfg)
+
+	objectPathKey := responseBodyData.getObjectPath()
+
+	exists, err := checkObjectExists(client, objectPathKey)
+	if err != nil {
+		return events.APIGatewayProxyResponse{
+			StatusCode: 500,
+			Body:       fmt.Sprintf("Failed to check object exists: %s", err),
+		}, nil
+	}
+	if exists {
+		responseBody, err := json.Marshal(responseBodyData)
+		if err != nil {
+			return events.APIGatewayProxyResponse{
+				StatusCode: 500,
+				Body:       fmt.Sprintf("Failed to marshal response body: %s", err),
+			}, nil
+		}
+
+		return events.APIGatewayProxyResponse{
+			StatusCode: 200,
+			Headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+			Body: string(responseBody),
 		}, nil
 	}
 
-	// Regular expressions for matching base64 images and SVG content
-	// regexpBase64 := regexp.MustCompile(`"data:image\/.*?;base64.*?"`)
-	// regexpSVG := regexp.MustCompile(`\<svg.*?\>.*?\<\/svg\>`)
-
-	// Replacing base64 images with empty strings and SVG content with empty <svg></svg> tags
-	// newContext := regexpBase64.ReplaceAllString(string(content), `""`)
-	// newContext = regexpSVG.ReplaceAllString(newContext, `<svg></svg>`)
+	// Render the page
+    content, err := renderPage(urlParam)
+    if err != nil {
+        return events.APIGatewayProxyResponse{
+            StatusCode: 500,
+            Body:       "Render Failed",
+        }, nil
+    }
 
 	// TODO: Upload rendered result to S3
 	contentReader := bytes.NewReader(content)
-	var objectPathKey string
-	if responseBodyData.Port != "" {
-		objectPathKey = strings.Join([]string{responseBodyData.Host, responseBodyData.Port}, "_")
-		objectPathKey = strings.Join([]string{objectPathKey, responseBodyData.ObjectKey}, "/")
-	} else {
-		objectPathKey = strings.Join([]string{responseBodyData.Host, responseBodyData.ObjectKey}, "/")
-	}
 	err = uploadToS3(objectPathKey, contentReader)
 	if err != nil {
 		return events.APIGatewayProxyResponse{
@@ -124,6 +143,36 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 		},
 		Body: string(responseBody),
 	}, nil
+}
+
+func checkObjectExists(client *s3.Client, objectKey string) (bool, error) {
+	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
+	if !exists {
+		return false, fmt.Errorf(
+			"checkObjectExists: S3_BUCKET_NAME environment variable is not set",
+		)
+	}
+
+	_, err := client.HeadObject(context.Background(), &s3.HeadObjectInput{
+		Bucket: aws.String(s3BucketName),
+		Key:    aws.String(objectKey),
+	})
+	if err != nil {
+		var apiErr smithy.APIError
+		if ok := errors.As(err, &apiErr); ok {
+			switch apiErr.ErrorCode() {
+			case "NotFound":
+				return false, nil
+			default:
+				return false, fmt.Errorf("checkObjectExists: %w", err)
+			}
+		} else {
+			return false, fmt.Errorf("checkObjectExists: %w", err)
+		}
+	}
+
+	// Object exists
+	return true, nil
 }
 
 func uploadToS3(objectKey string, content io.Reader) error {
@@ -162,4 +211,38 @@ func calcKey(input []byte) (string, error) {
 	}
 
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func renderPage(urlParam string) ([]byte, error) {
+	browserContext := renderer.BrowserContext{
+		DebugMode: true,
+		Container: true,
+		// SingleProcess:   true,
+	}
+	rendererContext := renderer.RendererContext{
+		Headless:       true,
+		WindowWidth:    1000,
+		WindowHeight:   1000,
+		Timeout:        30,
+		ImageLoad:      false,
+		SkipFrameCount: 0,
+	}
+	ctx := context.Background()
+	ctx = renderer.WithBrowserContext(ctx, &browserContext)
+	ctx = renderer.WithRendererContext(ctx, &rendererContext)
+
+	content, err := renderer.RenderPage(ctx, urlParam)
+	if err != nil {
+        return nil, fmt.Errorf("renderPage: %w", err)
+	}
+
+	// Regular expressions for matching base64 images and SVG content
+	// regexpBase64 := regexp.MustCompile(`"data:image\/.*?;base64.*?"`)
+	// regexpSVG := regexp.MustCompile(`\<svg.*?\>.*?\<\/svg\>`)
+
+	// Replacing base64 images with empty strings and SVG content with empty <svg></svg> tags
+	// newContext := regexpBase64.ReplaceAllString(string(content), `""`)
+	// newContext = regexpSVG.ReplaceAllString(newContext, `<svg></svg>`)
+
+    return content, nil
 }

@@ -24,7 +24,7 @@ func HttpHandler(w http.ResponseWriter, r *http.Request) {
 	// Render the page
 	browserContext := renderer.BrowserContext{
 		DebugMode: true,
-		Container: false,
+		Container: true,
 	}
 	rendererContext := renderer.RendererContext{
 		Headless:       false,
