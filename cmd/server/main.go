@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/liuminhaw/renderer"
+	"github.com/liuminhaw/wrenderer/cmd/server/awsLambda"
 )
 
 func HttpHandler(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +51,7 @@ func HttpHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	if _, exists := os.LookupEnv("AWS_LAMBDA_RUNTIME_API"); exists {
 		fmt.Println("Running in AWS Lambda custom image")
-		lambda.Start(LambdaHandler)
+		lambda.Start(awsLambda.LambdaHandler)
 	} else {
 		fmt.Println("server listening on 8080 port")
 		http.HandleFunc("/render/", HttpHandler)
