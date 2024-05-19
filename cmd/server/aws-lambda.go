@@ -37,7 +37,7 @@ func (rd responseData) getObjectPath() string {
 		objectPath = strings.Join([]string{rd.Host, rd.ObjectKey}, "/")
 	}
 
-    return objectPath
+	return objectPath
 }
 
 func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
@@ -110,13 +110,13 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 	}
 
 	// Render the page
-    content, err := renderPage(urlParam)
-    if err != nil {
-        return events.APIGatewayProxyResponse{
-            StatusCode: 500,
-            Body:       "Render Failed",
-        }, nil
-    }
+	content, err := renderPage(urlParam)
+	if err != nil {
+		return events.APIGatewayProxyResponse{
+			StatusCode: 500,
+			Body:       "Render Failed",
+		}, nil
+	}
 
 	// TODO: Upload rendered result to S3
 	contentReader := bytes.NewReader(content)
@@ -145,6 +145,9 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 	}, nil
 }
 
+// checkObjectExists checks if an object exists in S3 bucket or if the object is empty
+// Returns true if the object exists and false if it does not exist
+// Error is returned if there is an error checking the object
 func checkObjectExists(client *s3.Client, objectKey string) (bool, error) {
 	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
 	if !exists {
@@ -153,7 +156,7 @@ func checkObjectExists(client *s3.Client, objectKey string) (bool, error) {
 		)
 	}
 
-	_, err := client.HeadObject(context.Background(), &s3.HeadObjectInput{
+	objStats, err := client.HeadObject(context.Background(), &s3.HeadObjectInput{
 		Bucket: aws.String(s3BucketName),
 		Key:    aws.String(objectKey),
 	})
@@ -169,6 +172,11 @@ func checkObjectExists(client *s3.Client, objectKey string) (bool, error) {
 		} else {
 			return false, fmt.Errorf("checkObjectExists: %w", err)
 		}
+	}
+
+	// Check object content length
+	if *objStats.ContentLength == 0 {
+		return false, nil
 	}
 
 	// Object exists
@@ -233,7 +241,7 @@ func renderPage(urlParam string) ([]byte, error) {
 
 	content, err := renderer.RenderPage(ctx, urlParam)
 	if err != nil {
-        return nil, fmt.Errorf("renderPage: %w", err)
+		return nil, fmt.Errorf("renderPage: %w", err)
 	}
 
 	// Regular expressions for matching base64 images and SVG content
@@ -244,5 +252,5 @@ func renderPage(urlParam string) ([]byte, error) {
 	// newContext := regexpBase64.ReplaceAllString(string(content), `""`)
 	// newContext = regexpSVG.ReplaceAllString(newContext, `<svg></svg>`)
 
-    return content, nil
+	return content, nil
 }

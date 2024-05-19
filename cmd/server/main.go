@@ -8,7 +8,6 @@ import (
 	"os"
 
 	"github.com/aws/aws-lambda-go/lambda"
-
 	"github.com/liuminhaw/renderer"
 )
 

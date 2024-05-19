@@ -9,7 +9,7 @@ COPY . .
 
 RUN go build -o wrenderer ./cmd/server/
 
-FROM chromedp/headless-shell:latest
+FROM chromedp/headless-shell:stable
 
 WORKDIR /app
 
