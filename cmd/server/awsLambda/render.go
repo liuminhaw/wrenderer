@@ -20,6 +20,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+// renderUrl is the handler for rendering given url from query parameters
+// It returns the rendered object key in S3 bucket along with the host and port
 func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// Get query parameters
 	urlParam := event.QueryStringParameters["url"]
@@ -157,43 +159,18 @@ func deleteRenderCache(
 ) (events.APIGatewayProxyResponse, error) {
 	urlParam := event.QueryStringParameters["url"]
 	log.Printf("Delete render cache for url: %s", urlParam)
-	if urlParam == "" {
+
+	domainParam := event.QueryStringParameters["domain"]
+	log.Printf("Delete render cache for domain: %s", domainParam)
+	if urlParam == "" && domainParam == "" {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 400,
 			Headers: map[string]string{
 				"Content-Type": "text/plain",
 			},
-			Body: "Missing url parameter",
+			Body: "one of url or domain parameter is required",
 		}, nil
 	}
-
-	urlParsed, err := url.Parse(urlParam)
-	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 400,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Invalid url parameter",
-		}, nil
-	}
-
-	objectKey, err := calcKey([]byte(urlParam))
-	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: fmt.Sprintf("Failed to calculate object key: %s", err),
-		}, nil
-	}
-	objectData := shared.ResponseData{
-		Host:      urlParsed.Hostname(),
-		Port:      urlParsed.Port(),
-		ObjectKey: objectKey,
-	}
-	objectPathKey := objectData.GetObjectPath()
 
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
@@ -207,38 +184,38 @@ func deleteRenderCache(
 	}
 	client := s3.NewFromConfig(cfg)
 
-	if err := deleteObjectFromS3(client, objectPathKey); err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: fmt.Sprintf("Failed to delete object: %s", err),
-		}, nil
-	}
-
-	// Remove host prefix if no more objects are left
-	empty, err := checkDomainEmpty(client, objectData.Host)
-	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: fmt.Sprintf("Failed to check domain emptiness: %s", objectData.Host),
-		}, nil
-	}
-	if empty {
-		prefix := fmt.Sprintf("%s/", objectData.Host)
-		if err := deletePrefixFromS3(client, prefix); err != nil {
+	switch {
+	case domainParam != "":
+		log.Printf("Delete render cache for domain: %s", domainParam)
+		if err := clearDomainCache(client, domainParam); err != nil {
 			return events.APIGatewayProxyResponse{
 				StatusCode: 500,
 				Headers: map[string]string{
 					"Content-Type": "text/plain",
 				},
-				Body: fmt.Sprintf("Failed to delete objects prefix: %s", objectData.Host),
+				Body: fmt.Sprintf("Error clearing domain from cache: %s", domainParam),
+			}, nil
+
+		}
+	case urlParam != "":
+		log.Printf("Delete render cache for url: %s", urlParam)
+		if err := clearUrlCache(client, urlParam); err != nil {
+			return events.APIGatewayProxyResponse{
+				StatusCode: 500,
+				Headers: map[string]string{
+					"Content-Type": "text/plain",
+				},
+				Body: fmt.Sprintf("Error clearing url from cache: %s", urlParam),
 			}, nil
 		}
+	default:
+		return events.APIGatewayProxyResponse{
+			StatusCode: 400,
+			Headers: map[string]string{
+				"Content-Type": "text/plain",
+			},
+			Body: "one of url or domain parameter is required",
+		}, nil
 	}
 
 	return events.APIGatewayProxyResponse{
@@ -246,7 +223,7 @@ func deleteRenderCache(
 		Headers: map[string]string{
 			"Content-Type": "text/plain",
 		},
-		Body: "Cache deleted",
+		Body: "Cache cleared",
 	}, nil
 }
 
@@ -268,6 +245,57 @@ func uploadToS3(client *s3.Client, objectKey string, content io.Reader) error {
 	})
 	if err != nil {
 		return fmt.Errorf("uploadToS3: failed to upload object: %w", err)
+	}
+
+	return nil
+}
+
+func clearDomainCache(client *s3.Client, domain string) error {
+    parsedUrl, err := url.Parse(domain)
+    if err != nil {
+        return fmt.Errorf("clearDomainCache: failed to parse domain: %w", err)
+    }
+
+	prefix := fmt.Sprintf("%s/", parsedUrl.Hostname())
+	if err := deletePrefixFromS3(client, prefix); err != nil {
+		return fmt.Errorf("clearDomainCache: delete domain cache: %w", err)
+	}
+
+	return nil
+}
+
+func clearUrlCache(client *s3.Client, urlParam string) error {
+	parsedUrl, err := url.Parse(urlParam)
+	if err != nil {
+		return fmt.Errorf("clearUrlCache: failed to parse url: %w", err)
+	}
+
+	objectKey, err := calcKey([]byte(urlParam))
+	if err != nil {
+		return fmt.Errorf("clearUrlCache: calculate object key: %w", err)
+	}
+
+	objectData := shared.ResponseData{
+		Host:      parsedUrl.Hostname(),
+		Port:      parsedUrl.Port(),
+		ObjectKey: objectKey,
+	}
+	objectPathKey := objectData.GetObjectPath()
+
+	// Remove the object from s3
+	if err := deleteObjectFromS3(client, objectPathKey); err != nil {
+		return fmt.Errorf("clearUrlCache: delete object: %w", err)
+	}
+	// Remove the host prefix if no more objects are left
+	empty, err := checkDomainEmpty(client, objectData.Host)
+	if err != nil {
+		return fmt.Errorf("clearUrlCache: check empty domain cache: %w", err)
+	}
+	if empty {
+		prefix := fmt.Sprintf("%s/", objectData.Host)
+		if err := deletePrefixFromS3(client, prefix); err != nil {
+			return fmt.Errorf("clearUrlCache: delete domain cache: %w", err)
+		}
 	}
 
 	return nil
