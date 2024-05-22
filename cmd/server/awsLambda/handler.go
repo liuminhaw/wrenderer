@@ -2,7 +2,6 @@ package awsLambda
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log"
@@ -109,15 +108,4 @@ func checkDomainEmpty(client *s3.Client, prefix string) (bool, error) {
 	}
 
 	return false, nil
-}
-
-// calcKey calculates the SHA256 hash of the input and returns it as a string
-func calcKey(input []byte) (string, error) {
-	h := sha256.New()
-	_, err := h.Write(input)
-	if err != nil {
-		return "", fmt.Errorf("calc key: %w", err)
-	}
-
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
