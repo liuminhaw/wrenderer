@@ -169,6 +169,7 @@ func deleteRenderCache(
 	case domainParam != "":
 		log.Printf("Delete render cache for domain: %s", domainParam)
 		if err := clearDomainCache(client, domainParam); err != nil {
+            log.Printf("Failed to clear domain %s cache: %v", domainParam, err)
 			return events.APIGatewayProxyResponse{
 				StatusCode: 500,
 				Headers: map[string]string{
@@ -180,6 +181,7 @@ func deleteRenderCache(
 	case urlParam != "":
 		log.Printf("Delete render cache for url: %s", urlParam)
 		if err := clearUrlCache(client, urlParam); err != nil {
+            log.Printf("Failed to clear url %s cache: %v", urlParam, err)
 			return events.APIGatewayProxyResponse{
 				StatusCode: 500,
 				Headers: map[string]string{
@@ -234,7 +236,7 @@ func uploadToS3(client *s3.Client, objectKey string, content io.Reader) error {
 func clearDomainCache(client *s3.Client, domain string) error {
 	render, err := wrender.NewWrender(domain)
 	if err != nil {
-		return fmt.Errorf("clearDomainCache: new wrender: %w", err)
+		return fmt.Errorf("clearDomainCache: %w", err)
 	}
 
 	prefix := fmt.Sprintf("%s/", render.GetHostPath())

@@ -23,6 +23,10 @@ type Wrender struct {
 }
 
 func NewWrender(urlParam string) (*Wrender, error) {
+    if !strings.Contains(urlParam, "://") {
+        urlParam = fmt.Sprintf("dummy://%s", urlParam)
+    }
+
 	target, err := url.Parse(urlParam)
 	if err != nil {
 		return nil, fmt.Errorf("new wrender: %w", err)
