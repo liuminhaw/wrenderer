@@ -23,6 +23,28 @@ url passed to `url` parameter should be encoded for parsing to work correctly
 docker build -t image-name:tag .
 ```
 
-## Lambda deployment
-1. Upload image to ECR
-1. Create **Container Image** type Lambda function
+## Setup
+1. Create ECR with CloudFormation template `setup/aws-lambda/wrenderer-img.yaml`
+    - Stack name: `${Name}-img`
+    - Parameters:
+        - WrendererName: `${Name}`
+1. Upload Wrenderer image to created repository
+1. Create main resources with CloudFormation template `setup/aws-lambda/wrenderer-main.yaml`
+    - Stack name: `${Name}`
+    - Parameters:
+        - WrendererName: `${Name}`
+        - WrendererImageDigest: ECR image digest (sha256:...)
+1. Create certificate for CloudFront (Only required if no certificate exist in us-east-1 ACM)
+    1. Set region to use `us-east-1`
+    1. Create certificate with CloudFormation template `setup/aws-lambda/wrenderer-acm.yaml`
+        - Stack name: `${Name}-acm`
+        - Parameters:
+            - WrendererName: `${Name}`
+    1. Set DNS record on for certificate validation
+1. Create CloudFront Distribution with CloudFormation template `setup/aws-lambda/wrenderer-cdn.yaml`
+    - Stack name: `${Name}-cdn`
+    - Parameters:
+        - WrendererName: `${Name}`
+1. Set DNS record to point domain to CloudFront distribution domain
+        
+

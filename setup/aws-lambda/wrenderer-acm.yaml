@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to setup certificate for wrenderer if needed
+
+Parameters:
+  WrendererDomain:
+    Type: String
+    Description: 'Domain planned to use on Wrenderer'
+  WrendererRootDomain:
+    Type: String
+    Description: 'Root domain of parameter WrendererDomain'
+  WrendererName:
+    Type: String
+    Description: 'Base name for creating resource'
+
+Resources:
+  WrendererCertificate:
+    Type: 'AWS::CertificateManager::Certificate'
+    Properties:
+      DomainName: !Ref WrendererDomain
+      DomainValidationOptions:
+        - DomainName: !Ref WrendererDomain
+          ValidationDomain: !Ref WrendererRootDomain
+      Tags:
+        - Key: wrenderer
+          Value: !Ref WrendererName
+      ValidationMethod: 'DNS'
+
+Outputs:
+  WrendererCertificateArn:
+    Description: 'ARN of created certificate'
+    Value: !Ref WrendererCertificate

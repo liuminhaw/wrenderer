@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for prerequisite resource to setup wrenderer on aws
+
+Parameters:
+  WrendererName:
+    Type: String
+    Default: wrenderer
+    Description: 'Base name for creating resources'
+
+Resources:
+  WrendererECR:
+    Type: 'AWS::ECR::Repository'
+    Properties:
+      EmptyOnDelete: True  
+      EncryptionConfiguration:
+        EncryptionType: 'AES256'
+      ImageScanningConfiguration:
+        ScanOnPush: True
+      RepositoryName: !Ref WrendererName
+      Tags:
+        - Key: wrenderer
+          Value: !Ref WrendererName
+
+Outputs:
+  WrendererECRUri:
+    Description: 'Repository for image to use in wrenderer lambda function'
+    Value: !GetAtt WrendererECR.RepositoryUri
+    Export:
+      Name: !Sub '${AWS::StackName}-ECRUri'
+
+   
