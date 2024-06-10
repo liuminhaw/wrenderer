@@ -223,7 +223,6 @@ func uploadToS3(client *s3.Client, objectKey string, content io.Reader) error {
 		Bucket:      &s3BucketName,
 		Key:         &objectKey,
 		Body:        content,
-		ACL:         types.ObjectCannedACLPublicRead,
 		ContentType: aws.String("text/html"),
 	})
 	if err != nil {
