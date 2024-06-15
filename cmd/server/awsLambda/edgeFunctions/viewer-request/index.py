@@ -142,6 +142,7 @@ def check_suffix_match(uri):
         '.torrent',
         '.ttf',
         '.woff',
+        '.webp',
         '.svg',
         '.eot'
     )
