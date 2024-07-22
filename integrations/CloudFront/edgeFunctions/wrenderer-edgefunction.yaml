@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template to setup prerequisite for CloudFront integration on wrenderer
+
+Parameters:
+  WrendererName:
+    Type: String
+    Description: "Base name for creating wrenderer resources"
+
+Resources:
+  LambdaEdgeRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${WrendererName}-lambdaedge"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - edgelambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: logsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:*:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:*:${AWS::AccountId}:log-group:*:*"
+
+  LambdaEdgeViewerRequest:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Architectures:
+        - "x86_64"
+      Description: "wrenderer Lambda@Edge function to handle viewer request"
+      FunctionName: !Sub "${WrendererName}-viewer-request"
+      Runtime: "python3.11"
+      Role: !GetAtt LambdaEdgeRole.Arn
+      Handler: "index.lambda_handler"
+      Tags:
+        - Key: wrenderer
+          Value: !Ref WrendererName
+      Code:
+        ZipFile: |
+          def lambda_handler(event, context):
+              return "Hello, World!"
+
+  LambdaEdgeOriginRequest:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Architectures:
+        - "x86_64"
+      Description: "wrenderer Lambda@Edge function to handle origin request"
+      FunctionName: !Sub "${WrendererName}-origin-request"
+      Runtime: "python3.11"
+      Role: !GetAtt LambdaEdgeRole.Arn
+      Handler: "index.lambda_handler"
+      Tags:
+        - Key: wrenderer
+          Value: !Ref WrendererName
+      Timeout: 30
+      Code:
+        ZipFile: |
+          def lambda_handler(event, context):
+              return "Hello, World!"
+
+Outputs:
+  LambdaEdgeRoleName:
+    Description: "Name of the role for Lambda@Edge functions"
+    Value: !Ref LambdaEdgeRole
+  LambdaEdgeRoleArn:
+    Description: "ARN of the role for Lambda@Edge functions"
+    Value: !GetAtt LambdaEdgeRole.Arn
+  LambdaEdgeOriginRequestName:
+    Description: "Name of the Lambda@Edge function for origin request"
+    Value: !Ref LambdaEdgeOriginRequest
+  LambdaEdgeOriginRequestArn:
+    Description: "ARN of the Lambda@Edge function for origin request"
+    Value: !GetAtt LambdaEdgeOriginRequest.Arn
+  LambdaEdgeViewerRequestName:
+    Description: "Name of the Lambda@Edge function for viewer request"
+    Value: !Ref LambdaEdgeViewerRequest
+  LambdaEdgeViewerRequestArn:
+    Description: "ARN of the Lambda@Edge function for viewer request"
+    Value: !GetAtt LambdaEdgeViewerRequest.Arn
