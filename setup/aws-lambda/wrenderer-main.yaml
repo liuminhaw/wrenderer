@@ -1,36 +1,42 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Description: CloudFormation template to setup wrenderer on aws
 
 Parameters:
   WrendererName:
     Type: String
     Default: wrenderer
-    Description: 'Base name for creating resource like lambda function, api gateway, and iam role etc.'
+    Description: "Base name for creating resource like lambda function, api gateway, and iam role etc."
   WrendererFunctionMemory:
     Type: Number
     Default: 4096
     MinValue: 4096
     MaxValue: 10240
-    Description: 'Memory size of lambda function executing the rendering program'
+    Description: "Memory size of lambda function executing the rendering program"
   WrendererImageDigest:
     Type: String
-    Description: 'ECR image digest (sha256 hash)'
+    Description: "ECR image digest (sha256 hash)"
+  WrendererBucketCacheExpirationInDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 365
+    Description: "Expiration days for page cache in s3 bucket"
   WrendererApiDeploymentStage:
     Type: String
     Default: default
-    Description: 'Stage to deploy wrenderer api gateway'
+    Description: "Stage to deploy wrenderer api gateway"
   WrendererApiThrottleLimit:
     Type: Number
     Default: 100
-    Description: 'Throttle rate limit for wrenderer api'
+    Description: "Throttle rate limit for wrenderer api"
   WrendererApiThrottleBurst:
     Type: Number
     Default: 200
-    Description: 'Throttle burst limit for wrenderer api'
+    Description: "Throttle burst limit for wrenderer api"
   WrendererLoggingRetentionDays:
     Type: Number
     Default: 7
-    Description: 'Retention days for wrenderer logging data'
+    Description: "Retention days for wrenderer logging data"
     AllowedValues:
       - 1
       - 3
@@ -57,91 +63,97 @@ Parameters:
 
 Resources:
   WrendererBucket:
-    Type: 'AWS::S3::Bucket'
+    Type: "AWS::S3::Bucket"
     Properties:
-      BucketName: !Sub '${WrendererName}-${AWS::Region}-${AWS::AccountId}'
+      BucketName: !Sub "${WrendererName}-${AWS::Region}-${AWS::AccountId}"
       PublicAccessBlockConfiguration:
         BlockPublicAcls: False
         BlockPublicPolicy: False
         IgnorePublicAcls: False
         RestrictPublicBuckets: False
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-page-cache
+            Status: Enabled
+            Prefix: "page/"
+            ExpirationInDays: !Ref WrendererBucketCacheExpirationInDays
       Tags:
         - Key: wrenderer
           Value: !Ref WrendererName
 
   WrendererBucketPolicy:
-    Type: 'AWS::S3::BucketPolicy'
+    Type: "AWS::S3::BucketPolicy"
     Properties:
       Bucket: !Ref WrendererBucket
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
-            Principal: '*'
+            Principal: "*"
             Action:
-              - 's3:GetObject'
-            Resource: !Sub 'arn:${AWS::Partition}:s3:::${WrendererBucket}/page/*'
-        
+              - "s3:GetObject"
+            Resource: !Sub "arn:${AWS::Partition}:s3:::${WrendererBucket}/page/*"
+
   WrendererRole:
-    Type: 'AWS::IAM::Role'
+    Type: "AWS::IAM::Role"
     Properties:
       RoleName: !Ref WrendererName
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
-              Service: 
+              Service:
                 - lambda.amazonaws.com
-            Action: 'sts:AssumeRole'
+            Action: "sts:AssumeRole"
       Policies:
         - PolicyName: logsAccess
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
-                  - 'logs:CreateLogStream'
-                  - 'logs:PutLogEvents'
-                Resource: 
-                  - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WrendererName}:*'
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WrendererName}:*"
         - PolicyName: s3Access
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
-                  - 's3:GetBucketLocation'
-                  - 's3:ListBucket'
+                  - "s3:GetBucketLocation"
+                  - "s3:ListBucket"
                 Resource:
-                  - !Sub 'arn:${AWS::Partition}:s3:::${WrendererBucket}'
+                  - !Sub "arn:${AWS::Partition}:s3:::${WrendererBucket}"
               - Effect: Allow
                 Action:
-                  - 's3:DeleteObject'
-                  - 's3:GetObject'
-                  - 's3:PutObject'
+                  - "s3:DeleteObject"
+                  - "s3:GetObject"
+                  - "s3:PutObject"
                 Resource:
-                  - !Sub 'arn:${AWS::Partition}:s3:::${WrendererBucket}/*'
+                  - !Sub "arn:${AWS::Partition}:s3:::${WrendererBucket}/*"
 
   WrendererLogging:
-    Type: 'AWS::Logs::LogGroup'
+    Type: "AWS::Logs::LogGroup"
     Properties:
-      LogGroupName: !Sub '/aws/lambda/${WrendererName}'
+      LogGroupName: !Sub "/aws/lambda/${WrendererName}"
       RetentionInDays: !Ref WrendererLoggingRetentionDays
 
   WrendererFunction:
-    Type: 'AWS::Lambda::Function'
+    Type: "AWS::Lambda::Function"
     Properties:
       Architectures:
         - x86_64
       Code:
-        ImageUri:  
+        ImageUri:
           Fn::Sub:
-            - '${Uri}@${ImageDigest}'
-            - Uri: 
+            - "${Uri}@${ImageDigest}"
+            - Uri:
                 Fn::ImportValue: !Sub ${WrendererName}-img-ECRUri
               ImageDigest: !Ref WrendererImageDigest
-      Description: 'function for rendering given url and return html result of the page'
+      Description: "function for rendering given url and return html result of the page"
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref WrendererBucket
@@ -156,10 +168,10 @@ Resources:
       Timeout: 30
 
   WrendererRestApi:
-    Type: 'AWS::ApiGateway::RestApi'
+    Type: "AWS::ApiGateway::RestApi"
     Properties:
       ApiKeySourceType: HEADER
-      Description: 'REST Api integrated with Wrenderer Lambda function'
+      Description: "REST Api integrated with Wrenderer Lambda function"
       EndpointConfiguration:
         Types:
           - REGIONAL
@@ -169,9 +181,9 @@ Resources:
           Value: !Ref WrendererName
 
   WrendererApiKey:
-    Type: 'AWS::ApiGateway::ApiKey'
+    Type: "AWS::ApiGateway::ApiKey"
     Properties:
-      Description: 'Api key to use in Rest api'
+      Description: "Api key to use in Rest api"
       Enabled: True
       Name: !Ref WrendererName
       Tags:
@@ -179,14 +191,14 @@ Resources:
           Value: !Ref WrendererName
 
   WrendererApiUsagePlan:
-    Type: 'AWS::ApiGateway::UsagePlan'
+    Type: "AWS::ApiGateway::UsagePlan"
     DependsOn:
       - WrendererApiDeployment
     Properties:
       ApiStages:
         - ApiId: !Ref WrendererRestApi
           Stage: !Ref WrendererApiDeploymentStage
-      Description: 'Usage plan for wrenderer api'
+      Description: "Usage plan for wrenderer api"
       Tags:
         - Key: wrenderer
           Value: !Ref WrendererName
@@ -196,29 +208,29 @@ Resources:
       UsagePlanName: !Ref WrendererName
 
   WrendererApiUsageAssociate:
-    Type: 'AWS::ApiGateway::UsagePlanKey'
+    Type: "AWS::ApiGateway::UsagePlanKey"
     Properties:
       KeyId: !Ref WrendererApiKey
-      KeyType: 'API_KEY'
+      KeyType: "API_KEY"
       UsagePlanId: !Ref WrendererApiUsagePlan
 
   WrendererApiResource:
-    Type: 'AWS::ApiGateway::Resource'
+    Type: "AWS::ApiGateway::Resource"
     Properties:
       ParentId: !GetAtt WrendererRestApi.RootResourceId
-      PathPart: 'render'
+      PathPart: "render"
       RestApiId: !Ref WrendererRestApi
 
   WrendererApiMethodGet:
-    Type: 'AWS::ApiGateway::Method'
+    Type: "AWS::ApiGateway::Method"
     Properties:
       ApiKeyRequired: True
-      AuthorizationType: 'None'
-      HttpMethod: 'GET'
-      Integration:    
-        IntegrationHttpMethod: 'POST'
-        Type: 'AWS_PROXY'
-        Uri:  
+      AuthorizationType: "NONE"
+      HttpMethod: "GET"
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS_PROXY"
+        Uri:
           Fn::Sub:
             - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
             - lambdaArn: !GetAtt WrendererFunction.Arn
@@ -226,15 +238,15 @@ Resources:
       RestApiId: !Ref WrendererRestApi
 
   WrendererApiMethodDelete:
-    Type: 'AWS::ApiGateway::Method'
+    Type: "AWS::ApiGateway::Method"
     Properties:
       ApiKeyRequired: True
-      AuthorizationType: 'None'
-      HttpMethod: 'DELETE'
-      Integration:    
-        IntegrationHttpMethod: 'POST'
-        Type: 'AWS_PROXY'
-        Uri:  
+      AuthorizationType: "NONE"
+      HttpMethod: "DELETE"
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS_PROXY"
+        Uri:
           Fn::Sub:
             - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
             - lambdaArn: !GetAtt WrendererFunction.Arn
@@ -247,58 +259,57 @@ Resources:
       - WrendererApiMethodGet
       - WrendererApiMethodDelete
     Properties:
-      Description: 'Api gateway deployment to given stage'
+      Description: "Api gateway deployment to given stage"
       RestApiId: !Ref WrendererRestApi
       StageName: !Ref WrendererApiDeploymentStage
 
   WrendererFunctionPermissionGet:
     Type: AWS::Lambda::Permission
     Properties:
-      Action: 'lambda:InvokeFunction'
+      Action: "lambda:InvokeFunction"
       FunctionName: !GetAtt WrendererFunction.Arn
-      Principal: 'apigateway.amazonaws.com'
+      Principal: "apigateway.amazonaws.com"
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WrendererRestApi}/${WrendererApiDeploymentStage}/GET/render
 
   WrendererFunctionPermissionDelete:
     Type: AWS::Lambda::Permission
     Properties:
-      Action: 'lambda:InvokeFunction'
+      Action: "lambda:InvokeFunction"
       FunctionName: !GetAtt WrendererFunction.Arn
-      Principal: 'apigateway.amazonaws.com'
+      Principal: "apigateway.amazonaws.com"
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WrendererRestApi}/${WrendererApiDeploymentStage}/DELETE/render
 
 Outputs:
   WrendererBucket:
-    Description: 'Bucket to store rendered page as cache'
+    Description: "Bucket to store rendered page as cache"
     Value: !Ref WrendererBucket
   WrendererBucketRegionalDomain:
-    Description: 'Bucket regional domain'
+    Description: "Bucket regional domain"
     Value: !GetAtt WrendererBucket.RegionalDomainName
     Export:
-      Name: !Sub '${AWS::StackName}-BucketRegionalDomain'
+      Name: !Sub "${AWS::StackName}-BucketRegionalDomain"
   WrendererRoleName:
-    Description: 'Name of wrenderer IAM Role'
+    Description: "Name of wrenderer IAM Role"
     Value: !Ref WrendererRole
   WrendererRoleArn:
-    Description: 'ARN of wrenderer Role'
+    Description: "ARN of wrenderer Role"
     Value: !GetAtt WrendererRole.Arn
   WrendererFunctionName:
-    Description: 'Wrenderer Lambda function name'
+    Description: "Wrenderer Lambda function name"
     Value: !Ref WrendererFunction
   WrendererFunctionArn:
-    Description: 'Wrenderer Lambda fnuction arn'
+    Description: "Wrenderer Lambda fnuction arn"
     Value: !GetAtt WrendererFunction.Arn
   WrendererRestApiId:
-    Description: 'Logical id of wrenderer rest api gateway'
+    Description: "Logical id of wrenderer rest api gateway"
     Value: !Ref WrendererRestApi
   WrendererRestApiDomain:
-    Description: 'Domain of created Wrenderer api gateway'
-    Value: !Sub '${WrendererRestApi}.execute-api.${AWS::Region}.amazonaws.com'
+    Description: "Domain of created Wrenderer api gateway"
+    Value: !Sub "${WrendererRestApi}.execute-api.${AWS::Region}.amazonaws.com"
     Export:
-      Name: !Sub '${AWS::StackName}-RestApiDomain'
+      Name: !Sub "${AWS::StackName}-RestApiDomain"
   WrendererApiDeploymentStage:
-    Description: 'Deployment stage of api gateway'
+    Description: "Deployment stage of api gateway"
     Value: !Ref WrendererApiDeploymentStage
     Export:
-      Name: !Sub '${AWS::StackName}-ApiDeploymentStage'
-
+      Name: !Sub "${AWS::StackName}-ApiDeploymentStage"
