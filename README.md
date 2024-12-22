@@ -13,7 +13,7 @@ curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/render?url=http
 Invalidate single url
 
 ```bash
-curl -X POST -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/render?url=https://www.target.com"
+curl -X DELETE -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/render?url=https://www.target.com"
 ```
 
 Invalidate whole domain
