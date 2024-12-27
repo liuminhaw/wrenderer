@@ -102,7 +102,18 @@ func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 		}, nil
 	}
 
-	// TODO: Upload rendered result to S3
+	// Check if rendered result is empty
+	if len(content) == 0 {
+		return events.APIGatewayProxyResponse{
+			StatusCode: 500,
+			Headers: map[string]string{
+				"Content-Type": "text/plain",
+			},
+			Body: "Rendered failed with empty content",
+		}, nil
+	}
+
+	// Upload rendered result to S3
 	contentReader := bytes.NewReader(content)
 	err = uploadToS3(client, render.Response.Path, contentReader)
 	if err != nil {
@@ -169,7 +180,7 @@ func deleteRenderCache(
 	case domainParam != "":
 		log.Printf("Delete render cache for domain: %s", domainParam)
 		if err := clearDomainCache(client, domainParam); err != nil {
-            log.Printf("Failed to clear domain %s cache: %v", domainParam, err)
+			log.Printf("Failed to clear domain %s cache: %v", domainParam, err)
 			return events.APIGatewayProxyResponse{
 				StatusCode: 500,
 				Headers: map[string]string{
@@ -181,7 +192,7 @@ func deleteRenderCache(
 	case urlParam != "":
 		log.Printf("Delete render cache for url: %s", urlParam)
 		if err := clearUrlCache(client, urlParam); err != nil {
-            log.Printf("Failed to clear url %s cache: %v", urlParam, err)
+			log.Printf("Failed to clear url %s cache: %v", urlParam, err)
 			return events.APIGatewayProxyResponse{
 				StatusCode: 500,
 				Headers: map[string]string{
