@@ -4,14 +4,19 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 )
 
+// s3 cache: {CachedPagePrefix}/{hostPath}/{objectKey}
+// boltdb cache: {CachedPagePrefix}: bucket, {hostPath}: bucket, {objectKey}: key
+
 const (
-	cachedPagePrefix = "page"
+	CachedPagePrefix = "page"
 )
 
 type WrenderResp struct {
+	// Path is in the format of "{CahedPagePrefix}/{host}/{objectKey}"
 	Path string `json:"path"`
 }
 
@@ -23,9 +28,9 @@ type Wrender struct {
 }
 
 func NewWrender(urlParam string) (*Wrender, error) {
-    if !strings.Contains(urlParam, "://") {
-        urlParam = fmt.Sprintf("dummy://%s", urlParam)
-    }
+	if !strings.Contains(urlParam, "://") {
+		urlParam = fmt.Sprintf("dummy://%s", urlParam)
+	}
 
 	target, err := url.Parse(urlParam)
 	if err != nil {
@@ -44,7 +49,7 @@ func NewWrender(urlParam string) (*Wrender, error) {
 	w := Wrender{
 		Target:           target,
 		ObjectKey:        key,
-		CachedPrefixPath: cachedPagePrefix,
+		CachedPrefixPath: CachedPagePrefix,
 		Response:         &WrenderResp{},
 	}
 	w.genObjectPath()
@@ -54,7 +59,13 @@ func NewWrender(urlParam string) (*Wrender, error) {
 
 func (w *Wrender) GetHostPath() string {
 	host := w.Target.Hostname()
-	return strings.Join([]string{w.CachedPrefixPath, host}, "/")
+	port := w.Target.Port()
+	if port != "" {
+		path := strings.Join([]string{host, port}, "_")
+		return filepath.Join(w.CachedPrefixPath, path)
+	}
+
+	return filepath.Join(w.CachedPrefixPath, host)
 }
 
 func calcKey(input []byte) (string, error) {
@@ -68,15 +79,8 @@ func calcKey(input []byte) (string, error) {
 }
 
 func (w *Wrender) genObjectPath() {
-	var objectPath string
-	host := w.Target.Hostname()
-	port := w.Target.Port()
-	if port != "" {
-		objectPath = strings.Join([]string{host, port}, "_")
-		objectPath = strings.Join([]string{w.CachedPrefixPath, objectPath, w.ObjectKey}, "/")
-	} else {
-		objectPath = strings.Join([]string{w.CachedPrefixPath, host, w.ObjectKey}, "/")
-	}
+    hostPath := w.GetHostPath()
+    objectPath := filepath.Join(hostPath, w.ObjectKey)
 
 	w.Response.Path = objectPath
 }
