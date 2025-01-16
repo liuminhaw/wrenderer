@@ -33,10 +33,10 @@ type BoltCaching struct {
 	CachedKey  string
 }
 
-// NewCaching creates a Caching struct from the given path.
+// NewBoltCaching creates a Caching struct from the given path.
 // The path should have the format of "{RootBucket}/{HostBucket}/{CachedKey}".
 // Each part of the path is separated by a slash and will be assigned to the struct fields.
-func NewCaching(db *bolt.DB, path string) (BoltCaching, error) {
+func NewBoltCaching(db *bolt.DB, path string) (BoltCaching, error) {
 	parts := strings.Split(path, "/")
 	if len(parts) != 3 {
 		return BoltCaching{}, fmt.Errorf("invalid input path: %s", path)

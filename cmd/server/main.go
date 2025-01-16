@@ -1,14 +1,11 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
 	"os"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/liuminhaw/wrenderer/cmd/server/awsLambda"
-	"github.com/spf13/viper"
+	"github.com/liuminhaw/wrenderer/cmd/server/upAndRun"
 )
 
 func main() {
@@ -20,26 +17,9 @@ func main() {
 }
 
 func run() {
-	viper.SetConfigName("wrenderer")
-	viper.SetConfigType("toml")
-	viper.AddConfigPath(".")
-
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.Fatalf("Error reading config file: %s\n", err)
-	}
-
-	appPort := viper.GetInt("app.port")
-	log.Printf("config app port: %d", appPort)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /render", pageRenderWithConfig(viper.GetViper()))
-
-	log.Printf("server listening on %d port", appPort)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", appPort), mux))
+	upAndRun.Start()
 }
 
 func runInLambda() {
-	fmt.Println("Running in AWS Lambda custom image")
 	lambda.Start(awsLambda.LambdaHandler)
 }

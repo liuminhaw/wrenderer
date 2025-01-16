@@ -19,6 +19,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+type LambdaResponse struct {
+	Path string `json:"path"`
+}
+
 // renderUrl is the handler for rendering given url from query parameters
 // It returns the rendered object key in S3 bucket along with the host and port
 func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
@@ -59,7 +63,7 @@ func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	}
 	client := s3.NewFromConfig(cfg)
 
-	exists, err := checkObjectExists(client, render.Response.Path)
+	exists, err := checkObjectExists(client, render.CachePath)
 	if err != nil {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
@@ -70,7 +74,7 @@ func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 		}, nil
 	}
 	if exists {
-		responseBody, err := json.Marshal(render.Response)
+		responseBody, err := json.Marshal(LambdaResponse{Path: render.CachePath})
 		if err != nil {
 			return events.APIGatewayProxyResponse{
 				StatusCode: 500,
@@ -115,7 +119,7 @@ func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 
 	// Upload rendered result to S3
 	contentReader := bytes.NewReader(content)
-	err = uploadToS3(client, render.Response.Path, contentReader)
+	err = uploadToS3(client, render.CachePath, contentReader)
 	if err != nil {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
@@ -126,7 +130,7 @@ func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 		}, err
 	}
 	// TODO: Return S3 URL for modify request settings
-	responseBody, err := json.Marshal(render.Response)
+    responseBody, err := json.Marshal(LambdaResponse{Path: render.CachePath})
 	if err != nil {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
@@ -249,7 +253,7 @@ func clearDomainCache(client *s3.Client, domain string) error {
 		return fmt.Errorf("clearDomainCache: %w", err)
 	}
 
-	prefix := fmt.Sprintf("%s/", render.GetHostPath())
+	prefix := fmt.Sprintf("%s/", render.GetPrefixPath())
 	if err := deletePrefixFromS3(client, prefix); err != nil {
 		return fmt.Errorf("clearDomainCache: delete domain cache: %w", err)
 	}
@@ -264,11 +268,11 @@ func clearUrlCache(client *s3.Client, urlParam string) error {
 	}
 
 	// Remove the object from s3
-	if err := deleteObjectFromS3(client, render.Response.Path); err != nil {
+	if err := deleteObjectFromS3(client, render.CachePath); err != nil {
 		return fmt.Errorf("clearUrlCache: delete object: %w", err)
 	}
 	// Remove the host prefix if no more objects are left
-	prefix := fmt.Sprintf("%s/", render.GetHostPath())
+	prefix := fmt.Sprintf("%s/", render.GetPrefixPath())
 	empty, err := checkDomainEmpty(client, prefix)
 	if err != nil {
 		return fmt.Errorf("clearUrlCache: check empty domain cache: %w", err)

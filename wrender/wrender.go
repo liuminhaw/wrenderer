@@ -1,11 +1,12 @@
 package wrender
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"net/url"
 	"path/filepath"
 	"strings"
+
+	"github.com/liuminhaw/wrenderer/internal"
 )
 
 // s3 cache: {CachedPagePrefix}/{hostPath}/{objectKey}
@@ -15,16 +16,10 @@ const (
 	CachedPagePrefix = "page"
 )
 
-type WrenderResp struct {
-	// Path is in the format of "{CahedPagePrefix}/{host}/{objectKey}"
-	Path string `json:"path"`
-}
-
 type Wrender struct {
-	Target           *url.URL
-	Response         *WrenderResp
-	ObjectKey        string
-	CachedPrefixPath string
+	Target    *url.URL
+	UrlKey    string
+	CachePath string
 }
 
 func NewWrender(urlParam string) (*Wrender, error) {
@@ -41,46 +36,32 @@ func NewWrender(urlParam string) (*Wrender, error) {
 		return nil, fmt.Errorf("new wrender: empty hostname")
 	}
 
-	key, err := calcKey([]byte(urlParam))
+	key, err := internal.Sha256Key([]byte(urlParam))
 	if err != nil {
 		return nil, fmt.Errorf("new wrender: %w", err)
 	}
 
 	w := Wrender{
-		Target:           target,
-		ObjectKey:        key,
-		CachedPrefixPath: CachedPagePrefix,
-		Response:         &WrenderResp{},
+		Target: target,
+		UrlKey: key,
 	}
 	w.genObjectPath()
 
 	return &w, nil
 }
 
-func (w *Wrender) GetHostPath() string {
+func (w *Wrender) GetPrefixPath() string {
 	host := w.Target.Hostname()
 	port := w.Target.Port()
 	if port != "" {
 		path := strings.Join([]string{host, port}, "_")
-		return filepath.Join(w.CachedPrefixPath, path)
+		return filepath.Join(CachedPagePrefix, path)
 	}
 
-	return filepath.Join(w.CachedPrefixPath, host)
-}
-
-func calcKey(input []byte) (string, error) {
-	h := sha256.New()
-	_, err := h.Write(input)
-	if err != nil {
-		return "", fmt.Errorf("calc key: %w", err)
-	}
-
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+	return filepath.Join(CachedPagePrefix, host)
 }
 
 func (w *Wrender) genObjectPath() {
-    hostPath := w.GetHostPath()
-    objectPath := filepath.Join(hostPath, w.ObjectKey)
-
-	w.Response.Path = objectPath
+	hostPath := w.GetPrefixPath()
+	w.CachePath = filepath.Join(hostPath, w.UrlKey)
 }
