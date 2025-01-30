@@ -130,7 +130,7 @@ func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 		}, err
 	}
 	// TODO: Return S3 URL for modify request settings
-    responseBody, err := json.Marshal(LambdaResponse{Path: render.CachePath})
+	responseBody, err := json.Marshal(LambdaResponse{Path: render.CachePath})
 	if err != nil {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
@@ -359,35 +359,21 @@ func deletePrefixFromS3(client *s3.Client, prefix string) error {
 }
 
 func renderPage(urlParam string) ([]byte, error) {
-	browserContext := renderer.BrowserContext{
-		DebugMode: true,
-		Container: true,
-		// SingleProcess:   true,
-	}
-	rendererContext := renderer.RendererContext{
-		Headless:       true,
-		WindowWidth:    1000,
-		WindowHeight:   1000,
-		Timeout:        30,
-		ImageLoad:      false,
-		SkipFrameCount: 0,
-	}
-	ctx := context.Background()
-	ctx = renderer.WithBrowserContext(ctx, &browserContext)
-	ctx = renderer.WithRendererContext(ctx, &rendererContext)
-
-	content, err := renderer.RenderPage(ctx, urlParam)
+	r := renderer.NewRenderer()
+	content, err := r.RenderPage(urlParam, &renderer.RendererOption{
+		BrowserOpts: renderer.BrowserConf{
+			IdleType:  "networkIdle",
+			Container: true,
+			DebugMode: true,
+		},
+		Headless:     true,
+		WindowWidth:  1920,
+		WindowHeight: 1080,
+		Timeout:      30,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("renderPage: %w", err)
 	}
-
-	// Regular expressions for matching base64 images and SVG content
-	// regexpBase64 := regexp.MustCompile(`"data:image\/.*?;base64.*?"`)
-	// regexpSVG := regexp.MustCompile(`\<svg.*?\>.*?\<\/svg\>`)
-
-	// Replacing base64 images with empty strings and SVG content with empty <svg></svg> tags
-	// newContext := regexpBase64.ReplaceAllString(string(content), `""`)
-	// newContext = regexpSVG.ReplaceAllString(newContext, `<svg></svg>`)
 
 	return content, nil
 }

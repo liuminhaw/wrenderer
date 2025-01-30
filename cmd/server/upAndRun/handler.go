@@ -89,8 +89,8 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			)
 
 			// Render the page
-			ctx := rendererContext(config)
-			content, err := renderer.RenderPage(ctx, url)
+			render := renderer.NewRenderer(renderer.WithLogger(app.logger))
+			content, err := render.RenderPage(url, rendererOption(config))
 			if err != nil {
 				app.serverError(w, r, err)
 				return
@@ -115,11 +115,6 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 
 			w.Header().Set("Content-Type", "text/html")
 			w.Write(content)
-			// fmt.Fprintf(
-			// 	w,
-			// 	"write cache path: %s",
-			// 	fmt.Sprintf("%s/%s/%s\n", caching.RootBucket, caching.HostBucket, caching.CachedKey),
-			// )
 		}
 	}
 }

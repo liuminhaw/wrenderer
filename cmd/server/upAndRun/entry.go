@@ -18,6 +18,11 @@ type application struct {
 
 func Start() {
 	pflag.Bool("debug", false, "Enable debug mode")
+	pflag.Bool(
+		"chromiumDebug",
+		false,
+		"Enable chromium debug mode, enable this will automatically enable debug mode",
+	)
 	pflag.Parse()
 
 	viper.SetConfigName("wrenderer")
@@ -28,6 +33,10 @@ func Start() {
 	err := viper.ReadInConfig()
 	if err != nil {
 		log.Fatalf("Error reading config file: %s\n", err)
+	}
+
+	if viper.GetBool("chromiumDebug") {
+		viper.Set("debug", true)
 	}
 
 	var logger *slog.Logger

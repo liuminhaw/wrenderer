@@ -8,10 +8,11 @@ path = "cache.db"
 durationInMinutes = 60
 
 [renderer]
-debugMode = true
-container = false
-headless = false
 windowWidth = 1920
 windowHeight = 1080
+userAgent = ""
+container = false
+headless = false
 timeout = 30
+
 

@@ -1,7 +1,6 @@
 package upAndRun
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -31,22 +30,25 @@ func (app *application) clientError(w http.ResponseWriter, status int) {
 	http.Error(w, http.StatusText(status), status)
 }
 
-func rendererContext(config *viper.Viper) context.Context {
-	browserContext := renderer.BrowserContext{
-		DebugMode: config.GetBool("renderer.debugMode"),
-		Container: config.GetBool("renderer.container"),
-	}
-	rendererContext := renderer.RendererContext{
-		Headless:       config.GetBool("renderer.headless"),
-		WindowWidth:    config.GetInt("renderer.windowWidth"),
-		WindowHeight:   config.GetInt("renderer.windowHeight"),
-		Timeout:        config.GetInt("renderer.timeout"),
-		ImageLoad:      false,
-		SkipFrameCount: 0,
-	}
-	ctx := context.Background()
-	ctx = renderer.WithBrowserContext(ctx, &browserContext)
-	ctx = renderer.WithRendererContext(ctx, &rendererContext)
+func rendererOption(config *viper.Viper) *renderer.RendererOption {
+	config.SetDefault("renderer.windowWidth", 1920)
+	config.SetDefault("renderer.windowHeight", 1080)
+	config.SetDefault("renderer.container", false)
+	config.SetDefault("renderer.headless", true)
+	config.SetDefault("renderer.userAgent", "")
+	config.SetDefault("renderer.timeout", 30)
 
-    return ctx
+	return &renderer.RendererOption{
+		BrowserOpts: renderer.BrowserConf{
+			IdleType:      "networkIdle",
+			Container:     config.GetBool("renderer.container"),
+			DebugMode:     config.GetBool("debug"),
+			ChromiumDebug: config.GetBool("chromiumDebug"),
+		},
+		Headless:     config.GetBool("renderer.headless"),
+		WindowWidth:  config.GetInt("renderer.windowWidth"),
+		WindowHeight: config.GetInt("renderer.windowHeight"),
+		Timeout:      config.GetInt("renderer.timeout"),
+		UserAgent:    config.GetString("renderer.userAgent"),
+	}
 }
