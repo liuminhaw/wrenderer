@@ -60,6 +60,14 @@ Parameters:
       - 2922
       - 3288
       - 3653
+  WrendererDebugMode:
+    Type: String
+    Default: "false"
+    Description: "Enable debug mode for wrenderer lambda function"
+    AllowedValues:
+      - "true"
+      - "false"
+    
 
 Resources:
   WrendererBucket:
@@ -158,6 +166,7 @@ Resources:
         Variables:
           S3_BUCKET_NAME: !Ref WrendererBucket
           S3_BUCKET_REGION: !Ref AWS::Region
+          WRENDERER_DEBUG_MODE: !Ref WrendererDebugMode 
       FunctionName: !Ref WrendererName
       MemorySize: !Ref WrendererFunctionMemory
       PackageType: Image

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -13,18 +13,41 @@ import (
 	"github.com/aws/smithy-go"
 )
 
+type application struct {
+	logger *slog.Logger
+}
+
 func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	log.Printf("Request path: %s", event.Path)
-	log.Printf("HTTP method: %s", event.HTTPMethod)
+	var logger *slog.Logger
+
+	debugMode, exists := os.LookupEnv("WRENDERER_DEBUG_MODE")
+	if !exists {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	} else if debugMode == "true" {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			AddSource: true,
+			Level:     slog.LevelDebug,
+		}))
+	} else {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	}
+
+	// Initialize a new instance of our application struct, containing the dependencies.
+	app := &application{
+		logger: logger,
+	}
+
+	logger.Info(fmt.Sprintf("Request path: %s", event.Path))
+	logger.Info(fmt.Sprintf("HTTP method: %s", event.HTTPMethod))
 
 	switch event.Path {
 	case "/render":
 		switch event.HTTPMethod {
 		case "GET":
-			return renderUrl(event)
+			return app.renderUrl(event)
 		case "DELETE":
 			fmt.Println("Delete rendered cache for")
-			return deleteRenderCache(event)
+			return app.deleteRenderCache(event)
 		default:
 			return events.APIGatewayProxyResponse{
 				StatusCode: 405,

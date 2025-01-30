@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/liuminhaw/renderer"
@@ -25,10 +25,12 @@ type LambdaResponse struct {
 
 // renderUrl is the handler for rendering given url from query parameters
 // It returns the rendered object key in S3 bucket along with the host and port
-func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+func (app *application) renderUrl(
+	event events.APIGatewayProxyRequest,
+) (events.APIGatewayProxyResponse, error) {
 	// Get query parameters
 	urlParam := event.QueryStringParameters["url"]
-	log.Printf("Render url: %s", urlParam)
+	app.logger.Info(fmt.Sprintf("Render url: %s", urlParam))
 	if urlParam == "" {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 400,
@@ -95,7 +97,7 @@ func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	}
 
 	// Render the page
-	content, err := renderPage(urlParam)
+	content, err := app.renderPage(urlParam)
 	if err != nil {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
@@ -150,14 +152,14 @@ func renderUrl(event events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	}, nil
 }
 
-func deleteRenderCache(
+func (app *application) deleteRenderCache(
 	event events.APIGatewayProxyRequest,
 ) (events.APIGatewayProxyResponse, error) {
 	urlParam := event.QueryStringParameters["url"]
-	log.Printf("Delete render cache for url: %s", urlParam)
+	app.logger.Debug(fmt.Sprintf("Delete cache", slog.String("url param", urlParam)))
 
 	domainParam := event.QueryStringParameters["domain"]
-	log.Printf("Delete render cache for domain: %s", domainParam)
+	app.logger.Debug(fmt.Sprintf("Delete cache", slog.String("domain param", domainParam)))
 	if urlParam == "" && domainParam == "" {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 400,
@@ -182,9 +184,9 @@ func deleteRenderCache(
 
 	switch {
 	case domainParam != "":
-		log.Printf("Delete render cache for domain: %s", domainParam)
+		app.logger.Info(fmt.Sprintf("Delete cache for domain: %s", domainParam))
 		if err := clearDomainCache(client, domainParam); err != nil {
-			log.Printf("Failed to clear domain %s cache: %v", domainParam, err)
+			app.logger.Error(err.Error(), slog.String("domain param", domainParam))
 			return events.APIGatewayProxyResponse{
 				StatusCode: 500,
 				Headers: map[string]string{
@@ -194,9 +196,9 @@ func deleteRenderCache(
 			}, nil
 		}
 	case urlParam != "":
-		log.Printf("Delete render cache for url: %s", urlParam)
+		app.logger.Info(fmt.Sprintf("Delete cache of url: %s", urlParam))
 		if err := clearUrlCache(client, urlParam); err != nil {
-			log.Printf("Failed to clear url %s cache: %v", urlParam, err)
+			app.logger.Error(err.Error(), slog.String("url param", urlParam))
 			return events.APIGatewayProxyResponse{
 				StatusCode: 500,
 				Headers: map[string]string{
@@ -358,13 +360,12 @@ func deletePrefixFromS3(client *s3.Client, prefix string) error {
 	return nil
 }
 
-func renderPage(urlParam string) ([]byte, error) {
-	r := renderer.NewRenderer()
+func (app *application) renderPage(urlParam string) ([]byte, error) {
+	r := renderer.NewRenderer(renderer.WithLogger(app.logger))
 	content, err := r.RenderPage(urlParam, &renderer.RendererOption{
 		BrowserOpts: renderer.BrowserConf{
 			IdleType:  "networkIdle",
 			Container: true,
-			DebugMode: true,
 		},
 		Headless:     true,
 		WindowWidth:  1920,

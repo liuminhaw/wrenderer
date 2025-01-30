@@ -42,7 +42,6 @@ func rendererOption(config *viper.Viper) *renderer.RendererOption {
 		BrowserOpts: renderer.BrowserConf{
 			IdleType:      "networkIdle",
 			Container:     config.GetBool("renderer.container"),
-			DebugMode:     config.GetBool("debug"),
 			ChromiumDebug: config.GetBool("chromiumDebug"),
 		},
 		Headless:     config.GetBool("renderer.headless"),
