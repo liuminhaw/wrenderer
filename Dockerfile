@@ -8,6 +8,7 @@ RUN go mod download
 COPY . .
 
 RUN go build -o wrenderer ./cmd/server/
+RUN go build -o wrenderer-worker ./cmd/worker/
 
 FROM chromedp/headless-shell:stable
 
@@ -19,5 +20,6 @@ RUN apt update \
     && apt autoclean
 
 COPY --from=builder /app/wrenderer .
+COPY --from=builder /app/wrenderer-worker .
 
 ENTRYPOINT [ "./wrenderer" ]

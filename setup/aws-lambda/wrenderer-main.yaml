@@ -149,6 +149,7 @@ Resources:
                   - "logs:PutLogEvents"
                 Resource:
                   - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WrendererName}:*"
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${WrendererName}-worker:*"
         - PolicyName: s3Access
           PolicyDocument:
             Version: "2012-10-17"
@@ -166,12 +167,86 @@ Resources:
                   - "s3:PutObject"
                 Resource:
                   - !Sub "arn:${AWS::Partition}:s3:::${WrendererBucket}/*"
+        - PolicyName: sqsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "sqs:SendMessage"
+                  - "sqs:ReceiveMessage"
+                  - "sqs:DeleteMessage"
+                  - "sqs:GetQueueAttributes"
+                  - "kms:Decrypt"
+                Resource:
+                  - "*"
 
   WrendererLogging:
     Type: "AWS::Logs::LogGroup"
     Properties:
       LogGroupName: !Sub "/aws/lambda/${WrendererName}"
       RetentionInDays: !Ref WrendererLoggingRetentionDays
+
+  WrendererWorkerLogging:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${WrendererName}-worker"
+      RetentionInDays: !Ref WrendererLoggingRetentionDays
+
+  WrendererWorkerFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Architectures:
+        - x86_64
+      Code:
+        ImageUri:
+          Fn::Sub:
+            - "${Uri}@${ImageDigest}"
+            - Uri:
+                Fn::ImportValue: !Sub ${WrendererName}-img-ECRUri
+              ImageDigest: !Ref WrendererImageDigest
+      ImageConfig:
+        EntryPoint:
+          - "./wrenderer-worker"
+      Description: "function to process rendering job from sqs"
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref WrendererBucket
+          S3_BUCKET_REGION: !Ref AWS::Region
+          WRENDERER_WINDOW_WIDTH: !Ref WrendererWindowWidth
+          WRENDERER_WINDOW_HEIGHT: !Ref WrendererWindowHeight
+          WRENDERER_IDLE_TYPE: !Ref WrendererIdleType
+          WRENDERER_DEBUG_MODE: !Ref WrendererDebugMode
+          WRENDERER_USER_AGENT: !If [HasUserAgent, !Ref WrendererUserAgent, !Ref "AWS::NoValue"]
+      FunctionName: !Sub "${WrendererName}-worker"
+      MemorySize: !Ref WrendererFunctionMemory
+      PackageType: Image
+      Role: !GetAtt WrendererRole.Arn
+      Tags:
+        - Key: wrenderer
+          Value: !Ref WrendererName
+      Timeout: 30
+
+  WrendererWorkerQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Ref WrendererName
+      VisibilityTimeout: 180
+      Tags:
+        - Key: wrenderer
+          Value: !Ref WrendererName
+
+  WrendererWorkerTrigger:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      Enabled: True
+      EventSourceArn: !GetAtt WrendererWorkerQueue.Arn
+      FunctionName: !Ref WrendererWorkerFunction
+      ScalingConfig:
+        MaximumConcurrency: 10
+      Tags:
+        - Key: wrenderer
+          Value: !Ref WrendererName
 
   WrendererFunction:
     Type: "AWS::Lambda::Function"
