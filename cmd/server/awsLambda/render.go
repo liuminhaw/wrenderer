@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strconv"
 
 	"github.com/liuminhaw/renderer"
 	"github.com/liuminhaw/wrenderer/wrender"
@@ -361,16 +362,48 @@ func deletePrefixFromS3(client *s3.Client, prefix string) error {
 }
 
 func (app *application) renderPage(urlParam string) ([]byte, error) {
+	idleType, exists := os.LookupEnv("WRENDERER_IDLE_TYPE")
+	if !exists {
+		idleType = "networkIdle"
+	}
+
+	var windowWidth, windowHeight int
+	var err error
+	windowWidthConfig, exists := os.LookupEnv("WRENDERER_WINDOW_WIDTH")
+	if !exists {
+		windowWidth = 1920
+	} else {
+		windowWidth, err = strconv.Atoi(windowWidthConfig)
+		if err != nil {
+			return nil, fmt.Errorf("renderPage: %w", err)
+		}
+	}
+	windowHeightConfig, exists := os.LookupEnv("WRENDERER_WINDOW_HEIGHT")
+	if !exists {
+		windowHeight = 1080
+	} else {
+		windowHeight, err = strconv.Atoi(windowHeightConfig)
+		if err != nil {
+			return nil, fmt.Errorf("renderPage: %w", err)
+		}
+	}
+
+	userAgent, exists := os.LookupEnv("WRENDERER_USER_AGENT")
+	if !exists {
+		userAgent = ""
+	}
+
 	r := renderer.NewRenderer(renderer.WithLogger(app.logger))
 	content, err := r.RenderPage(urlParam, &renderer.RendererOption{
 		BrowserOpts: renderer.BrowserConf{
-			IdleType:  "networkIdle",
+			IdleType:  idleType,
 			Container: true,
 		},
 		Headless:     true,
-		WindowWidth:  1920,
-		WindowHeight: 1080,
+		WindowWidth:  windowWidth,
+		WindowHeight: windowHeight,
 		Timeout:      30,
+		UserAgent:    userAgent,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("renderPage: %w", err)

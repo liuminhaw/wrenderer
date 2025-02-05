@@ -67,7 +67,31 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
-    
+  WrendererIdleType:
+    Type: String
+    Default: "networkIdle"
+    Description: "Idle type considering page rendering is completed"
+    AllowedValues:
+      - "networkIdle"
+      - "InteractiveTime"
+  WrendererWindowWidth:
+    Type: Number
+    Default: 1920
+    MinValue: 320
+    Description: "Width of browser window when rendering page"
+  WrendererWindowHeight:
+    Type: Number
+    Default: 1080
+    MinValue: 240
+    Description: "Height of browser window when rendering page"
+  WrendererUserAgent:
+    Type: String
+    Description: "User agent string to use in the automated browser"
+
+
+Conditions:
+  HasUserAgent: !Not [!Equals [!Ref WrendererUserAgent, ""]]
+
 
 Resources:
   WrendererBucket:
@@ -166,7 +190,11 @@ Resources:
         Variables:
           S3_BUCKET_NAME: !Ref WrendererBucket
           S3_BUCKET_REGION: !Ref AWS::Region
+          WRENDERER_WINDOW_WIDTH: !Ref WrendererWindowWidth
+          WRENDERER_WINDOW_HEIGHT: !Ref WrendererWindowHeight
+          WRENDERER_IDLE_TYPE: !Ref WrendererIdleType
           WRENDERER_DEBUG_MODE: !Ref WrendererDebugMode 
+          WRENDERER_USER_AGENT: !If [HasUserAgent, !Ref WrendererUserAgent, !Ref "AWS::NoValue"]
       FunctionName: !Ref WrendererName
       MemorySize: !Ref WrendererFunctionMemory
       PackageType: Image
