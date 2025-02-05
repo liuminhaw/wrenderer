@@ -44,9 +44,13 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 	case "/render":
 		switch event.HTTPMethod {
 		case "GET":
+			logger.Debug("request for rendering url")
 			return app.renderUrl(event)
+		case "PUT":
+			logger.Debug("request for rendering sitemap")
+			return app.renderSitemap(event)
 		case "DELETE":
-			fmt.Println("Delete rendered cache for")
+			logger.Debug("request for deleting rendered cache")
 			return app.deleteRenderCache(event)
 		default:
 			return events.APIGatewayProxyResponse{

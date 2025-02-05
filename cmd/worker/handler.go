@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -9,6 +11,10 @@ import (
 
 type application struct {
 	logger *slog.Logger
+}
+
+type workerQueuePayload struct {
+	TargetUrl string `json:"targetUrl"`
 }
 
 func lambdaHandler(event events.SQSEvent) error {
@@ -26,12 +32,20 @@ func lambdaHandler(event events.SQSEvent) error {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 
-	logger.Debug("Processing event")
 	for _, message := range event.Records {
+		var payload workerQueuePayload
+		if err := json.Unmarshal([]byte(message.Body), &payload); err != nil {
+			logger.Error(
+				"Failed to unmarshal message",
+				slog.String("id", message.MessageId),
+				slog.String("body", message.Body),
+			)
+			continue
+		}
+
 		logger.Debug(
-			"Processing message",
+			fmt.Sprintf("Target Url: %s", payload.TargetUrl),
 			slog.String("id", message.MessageId),
-			slog.String("body", message.Body),
 		)
 	}
 

@@ -265,6 +265,7 @@ Resources:
         Variables:
           S3_BUCKET_NAME: !Ref WrendererBucket
           S3_BUCKET_REGION: !Ref AWS::Region
+          SQS_WORKER_QUEUE: !Ref WrendererWorkerQueue
           WRENDERER_WINDOW_WIDTH: !Ref WrendererWindowWidth
           WRENDERER_WINDOW_HEIGHT: !Ref WrendererWindowHeight
           WRENDERER_IDLE_TYPE: !Ref WrendererIdleType
@@ -349,6 +350,22 @@ Resources:
       ResourceId: !Ref WrendererApiResource
       RestApiId: !Ref WrendererRestApi
 
+  WrendererApiMethodPut:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      ApiKeyRequired: True
+      AuthorizationType: "NONE"
+      HttpMethod: "PUT"
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS_PROXY"
+        Uri:
+          Fn::Sub:
+            - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
+            - lambdaArn: !GetAtt WrendererFunction.Arn
+      ResourceId: !Ref WrendererApiResource
+      RestApiId: !Ref WrendererRestApi
+
   WrendererApiMethodDelete:
     Type: "AWS::ApiGateway::Method"
     Properties:
@@ -370,6 +387,7 @@ Resources:
     DependsOn:
       - WrendererApiMethodGet
       - WrendererApiMethodDelete
+      - WrendererApiMethodPut
     Properties:
       Description: "Api gateway deployment to given stage"
       RestApiId: !Ref WrendererRestApi
@@ -382,6 +400,14 @@ Resources:
       FunctionName: !GetAtt WrendererFunction.Arn
       Principal: "apigateway.amazonaws.com"
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WrendererRestApi}/${WrendererApiDeploymentStage}/GET/render
+
+  WrendererFunctionPermissionPut:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt WrendererFunction.Arn
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WrendererRestApi}/${WrendererApiDeploymentStage}/PUT/render
 
   WrendererFunctionPermissionDelete:
     Type: AWS::Lambda::Permission
@@ -406,6 +432,15 @@ Outputs:
   WrendererRoleArn:
     Description: "ARN of wrenderer Role"
     Value: !GetAtt WrendererRole.Arn
+  WrendererWorkerFunctionName:
+    Description: "Wrenderer worker Lambda function name"
+    Value: !Ref WrendererWorkerFunction
+  WrendererWorkerFunctionArn:
+    Description: "Wrenderer worker Lambda function arn"
+    Value: !GetAtt WrendererWorkerFunction.Arn
+  WrendererWorkerQueue:
+    Description: "Wrenderer worker SQS queue"
+    Value: !Ref WrendererWorkerQueue
   WrendererFunctionName:
     Description: "Wrenderer Lambda function name"
     Value: !Ref WrendererFunction

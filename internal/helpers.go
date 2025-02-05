@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 )
 
 func Compress(data []byte) ([]byte, error) {
@@ -45,4 +46,16 @@ func Sha256Key(input []byte) (string, error) {
 	}
 
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func ValidUrl(str string) bool {
+	parsedUrl, err := url.Parse(str)
+	if err != nil {
+		return false
+	}
+
+	if parsedUrl.Scheme == "" || parsedUrl.Host == "" {
+		return false
+	}
+	return true
 }
