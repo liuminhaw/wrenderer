@@ -1,57 +1,51 @@
 package awsLambda
 
 import (
-	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/smithy-go"
+	"github.com/liuminhaw/wrenderer/internal"
+	"github.com/liuminhaw/wrenderer/internal/application/lambdaApp"
 )
 
-type application struct {
+type handler struct {
 	logger *slog.Logger
 }
 
 func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var logger *slog.Logger
+	handler := handler{}
 
 	debugMode, exists := os.LookupEnv("WRENDERER_DEBUG_MODE")
 	if !exists {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+		handler.logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	} else if debugMode == "true" {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		handler.logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 			AddSource: true,
 			Level:     slog.LevelDebug,
 		}))
 	} else {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+		handler.logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 
-	// Initialize a new instance of our application struct, containing the dependencies.
-	app := &application{
-		logger: logger,
-	}
-
-	logger.Info(fmt.Sprintf("Request path: %s", event.Path))
-	logger.Info(fmt.Sprintf("HTTP method: %s", event.HTTPMethod))
+	handler.logger.Info(fmt.Sprintf("Request path: %s", event.Path))
+	handler.logger.Info(fmt.Sprintf("HTTP method: %s", event.HTTPMethod))
 
 	switch event.Path {
 	case "/render":
 		switch event.HTTPMethod {
 		case "GET":
-			logger.Debug("request for rendering url")
-			return app.renderUrl(event)
+			handler.logger.Debug("request for rendering url")
+			return handler.renderUrlHandler(event)
 		case "PUT":
-			logger.Debug("request for rendering sitemap")
-			return app.renderSitemap(event)
+			handler.logger.Debug("request for rendering sitemap")
+			return handler.renderSitemapHandler(event)
 		case "DELETE":
-			logger.Debug("request for deleting rendered cache")
-			return app.deleteRenderCache(event)
+			handler.logger.Debug("request for deleting rendered cache")
+			return handler.deleteCacheHandler(event)
 		default:
 			return events.APIGatewayProxyResponse{
 				StatusCode: 405,
@@ -72,67 +66,136 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 	}
 }
 
-// checkObjectExists checks if an object exists in S3 bucket or if the object is empty
-// Returns true if the object exists and false if it does not exist
-// Error is returned if there is an error checking the object
-func checkObjectExists(client *s3.Client, objectKey string) (bool, error) {
-	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
-	if !exists {
-		return false, fmt.Errorf(
-			"checkObjectExists: S3_BUCKET_NAME environment variable is not set",
-		)
-	}
-
-	objStats, err := client.HeadObject(context.Background(), &s3.HeadObjectInput{
-		Bucket: aws.String(s3BucketName),
-		Key:    aws.String(objectKey),
-	})
-	if err != nil {
-		var apiErr smithy.APIError
-		if ok := errors.As(err, &apiErr); ok {
-			switch apiErr.ErrorCode() {
-			case "NotFound":
-				return false, nil
-			default:
-				return false, fmt.Errorf("checkObjectExists: %w", err)
-			}
-		} else {
-			return false, fmt.Errorf("checkObjectExists: %w", err)
-		}
-	}
-
-	// Check object content length
-	if *objStats.ContentLength == 0 {
-		return false, nil
-	}
-
-	// Object exists
-	return true, nil
+type renderResponse struct {
+	Path string `json:"path"`
 }
 
-// checkDomainEmpty checks if a bucket is empty under given prefix
-// Returns true if the bucket is empty and false if it is not empty
-// Error is returned if there is an error checking the bucket
-func checkDomainEmpty(client *s3.Client, prefix string) (bool, error) {
-	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
-	if !exists {
-		return false, fmt.Errorf(
-			"checkDomainEmpty: S3_BUCKET_NAME environment variable is not set",
+func (h *handler) renderUrlHandler(
+	event events.APIGatewayProxyRequest,
+) (events.APIGatewayProxyResponse, error) {
+	urlParam := event.QueryStringParameters["url"]
+	h.logger.Info(fmt.Sprintf("Render url: %s", urlParam))
+	if urlParam == "" {
+		return h.clientError(
+			event,
+			http.StatusBadRequest,
+			&respErrorMessage{Message: "Missing url parameter"},
 		)
 	}
 
-	result, err := client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
-		Bucket:  aws.String(s3BucketName),
-		Prefix:  aws.String(prefix),
-		MaxKeys: aws.Int32(1),
-	})
+	app := &lambdaApp.Application{
+		Logger: h.logger,
+	}
+	cachePath, err := app.RenderUrl(urlParam)
 	if err != nil {
-		return false, fmt.Errorf("checkDomainEmpty: %w", err)
+		return h.serverError(event, err, nil)
 	}
 
-	if len(result.Contents) == 0 {
-		return true, nil
+	responseBody, err := json.Marshal(renderResponse{Path: cachePath})
+	if err != nil {
+		return h.serverError(event, err, nil)
 	}
 
-	return false, nil
+	return events.APIGatewayProxyResponse{
+		StatusCode: http.StatusOK,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: string(responseBody),
+	}, nil
+}
+
+func (h *handler) deleteCacheHandler(
+	event events.APIGatewayProxyRequest,
+) (events.APIGatewayProxyResponse, error) {
+	urlParam := event.QueryStringParameters["url"]
+	h.logger.Debug("Delete cache", slog.String("url param", urlParam))
+
+	domainParam := event.QueryStringParameters["domain"]
+	h.logger.Debug("Delete cache", slog.String("domain param", domainParam))
+	if urlParam == "" && domainParam == "" {
+		return h.clientError(
+			event,
+			http.StatusBadRequest,
+			&respErrorMessage{Message: "one of url or domain parameter is required"},
+		)
+	}
+
+	app := &lambdaApp.Application{
+		Logger: h.logger,
+	}
+
+	switch {
+	case domainParam != "":
+		h.logger.Info(fmt.Sprintf("Delete cache for domain: %s", domainParam))
+		if err := app.DeleteDomainRenderCache(domainParam); err != nil {
+			return h.serverError(event, err, nil)
+		}
+	case urlParam != "":
+		h.logger.Info(fmt.Sprintf("Delete cache with url: %s", urlParam))
+		if err := app.DeleteUrlRenderCache(urlParam); err != nil {
+			return h.serverError(event, err, nil)
+		}
+	default:
+		return h.clientError(
+			event,
+			http.StatusBadRequest,
+			&respErrorMessage{Message: "one of url or domain parameter is required"},
+		)
+	}
+
+	return events.APIGatewayProxyResponse{
+		StatusCode: 200,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: `{"message": "cache cleared"}`,
+	}, nil
+}
+
+type renderSitemapPayload struct {
+	SitemapUrl string `json:"sitemapUrl"`
+}
+
+func (h *handler) renderSitemapHandler(
+	event events.APIGatewayProxyRequest,
+) (events.APIGatewayProxyResponse, error) {
+	h.logger.Debug(
+		fmt.Sprintf("Request body: %s", event.Body),
+		slog.String("api", "renderSitemap"),
+	)
+
+	var payload renderSitemapPayload
+	if err := json.Unmarshal([]byte(event.Body), &payload); err != nil {
+		h.logger.Info(
+			"Failed to unmarshal request body",
+			slog.String("request body", event.Body),
+		)
+		return h.clientError(event, http.StatusBadRequest, nil)
+	}
+
+	if !internal.ValidUrl(payload.SitemapUrl) {
+		h.logger.Info("Invalid sitemap url", slog.String("sitemap url", payload.SitemapUrl))
+		return h.clientError(
+			event,
+			http.StatusBadRequest,
+			&respErrorMessage{Message: "Invalid sitemap url"},
+		)
+	}
+
+	app := &lambdaApp.Application{
+		Logger: h.logger,
+	}
+	if err := app.RenderSitemap(payload.SitemapUrl); err != nil {
+		return h.serverError(event, err, nil)
+	}
+
+	return events.APIGatewayProxyResponse{
+		StatusCode: http.StatusAccepted,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+			"Location":     "/current/placeholder",
+		},
+		Body: `{"message": "Sitemap rendering accepted"}`,
+	}, nil
 }

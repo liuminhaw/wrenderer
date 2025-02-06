@@ -47,6 +47,31 @@ func lambdaHandler(event events.SQSEvent) error {
 			fmt.Sprintf("Target Url: %s", payload.TargetUrl),
 			slog.String("id", message.MessageId),
 		)
+
+		// render the target url
+		// render, err := wrender.NewWrender(payload.TargetUrl)
+		// if err != nil {
+		// 	logger.Error(
+		// 		err.Error(),
+		// 		slog.String("id", message.MessageId),
+		// 		slog.Any("payload", payload),
+		// 	)
+		// 	return err
+		// }
+
+		// cfg, err := config.LoadDefaultConfig(context.Background())
+		// if err != nil {
+		// 	logger.Error(
+		// 		err.Error(),
+		// 		slog.String("id", message.MessageId),
+		// 		slog.Any("payload", payload),
+		// 	)
+		// 	return err
+		// }
+		// client := s3.NewFromConfig(cfg)
+
+		// Render the page
+		// content, err := app.renderPage(payload.TargetUrl)
 	}
 
 	return nil

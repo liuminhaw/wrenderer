@@ -1,4 +1,4 @@
-package awsLambda
+package lambdaApp
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ type respErrorMessage struct {
 	Message string `json:"message"`
 }
 
-func (h *handler) serverError(
+func (app *Application) serverError(
 	event events.APIGatewayProxyRequest,
 	cause error,
 	message *respErrorMessage,
@@ -31,13 +31,13 @@ func (h *handler) serverError(
 	var respBody string
 	respMsg, err := json.Marshal(*message)
 	if err != nil {
-		h.logger.Error(
+		app.Logger.Error(
 			"serverError failed to marshal response message",
 			slog.Any("message", message),
 		)
 		respBody = `{"message":"Internal server error"}`
 	} else {
-		h.logger.Error(
+		app.Logger.Error(
 			cause.Error(),
 			slog.String("method", method),
 			slog.String("path", path),
@@ -56,7 +56,7 @@ func (h *handler) serverError(
 	}, nil
 }
 
-func (h *handler) clientError(
+func (app *Application) clientError(
 	event events.APIGatewayProxyRequest,
 	status int,
 	message *respErrorMessage,
@@ -74,13 +74,13 @@ func (h *handler) clientError(
 	var respBody string
 	respMsg, err := json.Marshal(*message)
 	if err != nil {
-		h.logger.Error(
+		app.Logger.Error(
 			"serverError failed to marshal response message",
 			slog.Any("message", message),
 		)
 		respBody = `{"message":"Internal server error"}`
 	} else {
-		h.logger.Error(
+		app.Logger.Error(
 			"client error",
 			slog.String("method", method),
 			slog.String("path", path),
