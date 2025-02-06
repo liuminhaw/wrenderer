@@ -40,12 +40,23 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 		case "GET":
 			handler.logger.Debug("request for rendering url")
 			return handler.renderUrlHandler(event)
-		case "PUT":
-			handler.logger.Debug("request for rendering sitemap")
-			return handler.renderSitemapHandler(event)
 		case "DELETE":
 			handler.logger.Debug("request for deleting rendered cache")
 			return handler.deleteCacheHandler(event)
+		default:
+			return events.APIGatewayProxyResponse{
+				StatusCode: 405,
+				Headers: map[string]string{
+					"Content-Type": "text/plain",
+				},
+				Body: "Method Not Allowed",
+			}, nil
+		}
+	case "/render/sitemap":
+		switch event.HTTPMethod {
+		case "PUT":
+			handler.logger.Debug("request for rendering sitemap")
+			return handler.renderSitemapHandler(event)
 		default:
 			return events.APIGatewayProxyResponse{
 				StatusCode: 405,

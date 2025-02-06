@@ -7,9 +7,10 @@ import (
 	"os"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/liuminhaw/wrenderer/internal/application/lambdaApp"
 )
 
-type application struct {
+type handler struct {
 	logger *slog.Logger
 }
 
@@ -18,24 +19,24 @@ type workerQueuePayload struct {
 }
 
 func lambdaHandler(event events.SQSEvent) error {
-	var logger *slog.Logger
+	h := handler{}
 
 	debugMode, exists := os.LookupEnv("WRENDERER_DEBUG_MODE")
 	if !exists {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+		h.logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	} else if debugMode == "true" {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		h.logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 			AddSource: true,
 			Level:     slog.LevelDebug,
 		}))
 	} else {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+		h.logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 
 	for _, message := range event.Records {
 		var payload workerQueuePayload
 		if err := json.Unmarshal([]byte(message.Body), &payload); err != nil {
-			logger.Error(
+			h.logger.Error(
 				"Failed to unmarshal message",
 				slog.String("id", message.MessageId),
 				slog.String("body", message.Body),
@@ -43,35 +44,40 @@ func lambdaHandler(event events.SQSEvent) error {
 			continue
 		}
 
-		logger.Debug(
-			fmt.Sprintf("Target Url: %s", payload.TargetUrl),
+		h.logger.Debug(
+			fmt.Sprintf("Processing url: %s", payload.TargetUrl),
 			slog.String("id", message.MessageId),
 		)
 
+		app := &lambdaApp.Application{
+			Logger: h.logger,
+		}
+
+		// delete existing cache
+		if err := app.DeleteUrlRenderCache(payload.TargetUrl); err != nil {
+			h.logger.Error(
+				err.Error(),
+				slog.String("id", message.MessageId),
+				slog.Any("payload", payload),
+			)
+			return err
+		}
+
 		// render the target url
-		// render, err := wrender.NewWrender(payload.TargetUrl)
-		// if err != nil {
-		// 	logger.Error(
-		// 		err.Error(),
-		// 		slog.String("id", message.MessageId),
-		// 		slog.Any("payload", payload),
-		// 	)
-		// 	return err
-		// }
+		_, err := app.RenderUrl(payload.TargetUrl)
+		if err != nil {
+			h.logger.Error(
+				err.Error(),
+				slog.String("id", message.MessageId),
+				slog.Any("payload", payload),
+			)
+			return err
+		}
 
-		// cfg, err := config.LoadDefaultConfig(context.Background())
-		// if err != nil {
-		// 	logger.Error(
-		// 		err.Error(),
-		// 		slog.String("id", message.MessageId),
-		// 		slog.Any("payload", payload),
-		// 	)
-		// 	return err
-		// }
-		// client := s3.NewFromConfig(cfg)
-
-		// Render the page
-		// content, err := app.renderPage(payload.TargetUrl)
+		h.logger.Debug(
+			fmt.Sprintf("target url: %s processed", payload.TargetUrl),
+			slog.String("id", message.MessageId),
+		)
 	}
 
 	return nil
