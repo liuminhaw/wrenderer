@@ -35,59 +35,33 @@ func (app *application) renderUrl(
 	urlParam := event.QueryStringParameters["url"]
 	app.logger.Info(fmt.Sprintf("Render url: %s", urlParam))
 	if urlParam == "" {
-		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusBadRequest,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Missing url parameter",
-		}, nil
+		return app.clientError(
+			event,
+			http.StatusBadRequest,
+			&respErrorMessage{Message: "Missing url parameter"},
+		)
 	}
 
 	render, err := wrender.NewWrender(urlParam)
 	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "New wrender error",
-		}, nil
+		return app.serverError(event, err, nil)
 	}
 
 	// Check if object exists
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: fmt.Sprintf("Failed to load config: %s", err),
-		}, nil
+		return app.serverError(event, err, nil)
 	}
 	client := s3.NewFromConfig(cfg)
 
 	exists, err := checkObjectExists(client, render.CachePath)
 	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: fmt.Sprintf("Failed to check object exists: %s", err),
-		}, nil
+		return app.serverError(event, err, nil)
 	}
 	if exists {
 		responseBody, err := json.Marshal(LambdaResponse{Path: render.CachePath})
 		if err != nil {
-			return events.APIGatewayProxyResponse{
-				StatusCode: 500,
-				Headers: map[string]string{
-					"Content-Type": "text/plain",
-				},
-				Body: fmt.Sprintf("Failed to marshal response body: %s", err),
-			}, nil
+			return app.serverError(event, err, nil)
 		}
 
 		return events.APIGatewayProxyResponse{
@@ -102,48 +76,29 @@ func (app *application) renderUrl(
 	// Render the page
 	content, err := app.renderPage(urlParam)
 	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Render Failed",
-		}, nil
+		return app.serverError(event, err, nil)
 	}
 
 	// Check if rendered result is empty
 	if len(content) == 0 {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Rendered failed with empty content",
-		}, nil
+		return app.serverError(
+			event,
+			err,
+			&respErrorMessage{Message: "Rendered failed with empty content"},
+		)
 	}
 
 	// Upload rendered result to S3
 	contentReader := bytes.NewReader(content)
 	err = uploadToS3(client, render.CachePath, contentReader)
 	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: fmt.Sprintf("Failed to upload to S3: %s", err),
-		}, err
+		return app.serverError(event, err, nil)
 	}
+
 	// TODO: Return S3 URL for modify request settings
 	responseBody, err := json.Marshal(LambdaResponse{Path: render.CachePath})
 	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: fmt.Sprintf("Failed to marshal response body: %s", err),
-		}, nil
+		return app.serverError(event, err, nil)
 	}
 
 	return events.APIGatewayProxyResponse{
@@ -173,24 +128,16 @@ func (app *application) renderSitemap(
 			"Failed to unmarshal request body",
 			slog.String("request body", event.Body),
 		)
-		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusBadRequest,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Bad request",
-		}, nil
+		return app.clientError(event, http.StatusBadRequest, nil)
 	}
 
 	if !internal.ValidUrl(payload.SitemapUrl) {
 		app.logger.Info("Invalid sitemap url", slog.String("sitemap url", payload.SitemapUrl))
-		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusBadRequest,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Invalid sitemap url",
-		}, nil
+		return app.clientError(
+			event,
+			http.StatusBadRequest,
+			&respErrorMessage{Message: "Invalid sitemap url"},
+		)
 	}
 
 	resp, err := http.Get(payload.SitemapUrl)
@@ -198,13 +145,7 @@ func (app *application) renderSitemap(
 		app.logger.Error(
 			fmt.Sprintf("Failed to fetch sitemap: %s", payload.SitemapUrl),
 		)
-		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusInternalServerError,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Internal Server Error",
-		}, nil
+		return app.serverError(event, err, nil)
 	}
 
 	entries, err := sitemapHelper.ParseSitemap(resp.Body)
@@ -212,25 +153,13 @@ func (app *application) renderSitemap(
 		app.logger.Error(
 			fmt.Sprintf("Failed to parse sitemap from %s", payload.SitemapUrl),
 		)
-		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusInternalServerError,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Internal Server Error",
-		}, nil
+		return app.serverError(event, err, nil)
 	}
 
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		app.logger.Error("Failed to load aws sdk config")
-		return events.APIGatewayProxyResponse{
-			StatusCode: http.StatusInternalServerError,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Internal Server Error",
-		}, nil
+		return app.serverError(event, err, nil)
 	}
 	client := sqs.NewFromConfig(cfg)
 
@@ -242,13 +171,7 @@ func (app *application) renderSitemap(
 				"Failed to generate worker queue payload",
 				slog.String("url", entry.Loc),
 			)
-			return events.APIGatewayProxyResponse{
-				StatusCode: http.StatusInternalServerError,
-				Headers: map[string]string{
-					"Content-Type": "text/plain",
-				},
-				Body: "Internal Server Error",
-			}, nil
+			return app.serverError(event, err, nil)
 		}
 
 		messageId, err := sendMessageToQueue(client, string(payload))
@@ -257,13 +180,7 @@ func (app *application) renderSitemap(
 				"Failed to send message to worker queue",
 				slog.String("url", entry.Loc),
 			)
-			return events.APIGatewayProxyResponse{
-				StatusCode: http.StatusInternalServerError,
-				Headers: map[string]string{
-					"Content-Type": "text/plain",
-				},
-				Body: "Internal Server Error",
-			}, nil
+			return app.serverError(event, err, nil)
 		}
 		app.logger.Debug(
 			fmt.Sprintf("Message id %s successfully sent", messageId),
@@ -277,7 +194,7 @@ func (app *application) renderSitemap(
 			"Content-Type": "application/json",
 			"Location":     "/current/placeholder",
 		},
-		Body: "{\"message\": \"Sitemap rendering accepted\"}",
+		Body: `{"message": "Sitemap rendering accepted"}`,
 	}, nil
 }
 
@@ -290,24 +207,16 @@ func (app *application) deleteRenderCache(
 	domainParam := event.QueryStringParameters["domain"]
 	app.logger.Debug("Delete cache", slog.String("domain param", domainParam))
 	if urlParam == "" && domainParam == "" {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 400,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "one of url or domain parameter is required",
-		}, nil
+		return app.clientError(
+			event,
+			http.StatusBadRequest,
+			&respErrorMessage{Message: "one of url or domain parameter is required"},
+		)
 	}
 
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: fmt.Sprintf("Failed to load config: %s", err),
-		}, nil
+		return app.serverError(event, err, nil)
 	}
 	client := s3.NewFromConfig(cfg)
 
@@ -316,42 +225,28 @@ func (app *application) deleteRenderCache(
 		app.logger.Info(fmt.Sprintf("Delete cache for domain: %s", domainParam))
 		if err := clearDomainCache(client, domainParam); err != nil {
 			app.logger.Error(err.Error(), slog.String("domain param", domainParam))
-			return events.APIGatewayProxyResponse{
-				StatusCode: 500,
-				Headers: map[string]string{
-					"Content-Type": "text/plain",
-				},
-				Body: fmt.Sprintf("Error clearing domain from cache: %s", domainParam),
-			}, nil
+			return app.serverError(event, err, nil)
 		}
 	case urlParam != "":
 		app.logger.Info(fmt.Sprintf("Delete cache of url: %s", urlParam))
 		if err := clearUrlCache(client, urlParam); err != nil {
 			app.logger.Error(err.Error(), slog.String("url param", urlParam))
-			return events.APIGatewayProxyResponse{
-				StatusCode: 500,
-				Headers: map[string]string{
-					"Content-Type": "text/plain",
-				},
-				Body: fmt.Sprintf("Error clearing url from cache: %s", urlParam),
-			}, nil
+			return app.serverError(event, err, nil)
 		}
 	default:
-		return events.APIGatewayProxyResponse{
-			StatusCode: 400,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "one of url or domain parameter is required",
-		}, nil
+		return app.clientError(
+			event,
+			http.StatusBadRequest,
+			&respErrorMessage{Message: "one of url or domain parameter is required"},
+		)
 	}
 
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
 		Headers: map[string]string{
-			"Content-Type": "text/plain",
+			"Content-Type": "application/json",
 		},
-		Body: "Cache cleared",
+		Body: `{"message": "cache cleared"}`,
 	}, nil
 }
 

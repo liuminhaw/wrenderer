@@ -2,11 +2,15 @@ package awsLambda
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 
+	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -166,13 +170,104 @@ func sendMessageToQueue(client *sqs.Client, message string) (string, error) {
 		return "", fmt.Errorf("missing SQS_WORKER_QUEUE environment variable")
 	}
 
-    resp, err := client.SendMessage(context.Background(), &sqs.SendMessageInput{
-        QueueUrl:    aws.String(queueUrl),
-        MessageBody: aws.String(message),
-    })
-    if err != nil {
-        return "", fmt.Errorf("failed to send message to worker queue: %w", err)
-    }
+	resp, err := client.SendMessage(context.Background(), &sqs.SendMessageInput{
+		QueueUrl:    aws.String(queueUrl),
+		MessageBody: aws.String(message),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to send message to worker queue: %w", err)
+	}
 
-    return *resp.MessageId, nil 
+	return *resp.MessageId, nil
+}
+
+type respErrorMessage struct {
+	Message string `json:"message"`
+}
+
+func (app *application) serverError(
+	event events.APIGatewayProxyRequest,
+	cause error,
+	message *respErrorMessage,
+) (events.APIGatewayProxyResponse, error) {
+	var (
+		method      = event.HTTPMethod
+		path        = event.Path
+		queryString = event.QueryStringParameters
+		body        = event.Body
+	)
+
+	if message == nil {
+		message = &respErrorMessage{Message: "Internal server error"}
+	}
+
+	var respBody string
+	respMsg, err := json.Marshal(*message)
+	if err != nil {
+		app.logger.Error(
+			"serverError failed to marshal response message",
+			slog.Any("message", message),
+		)
+		respBody = `{"message":"Internal server error"}`
+	} else {
+		app.logger.Error(
+			cause.Error(),
+			slog.String("method", method),
+			slog.String("path", path),
+			slog.Any("queryString", queryString),
+			slog.String("body", body),
+		)
+		respBody = string(respMsg)
+	}
+
+	return events.APIGatewayProxyResponse{
+		StatusCode: http.StatusInternalServerError,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: respBody,
+	}, nil
+}
+
+func (app *application) clientError(
+	event events.APIGatewayProxyRequest,
+	status int,
+	message *respErrorMessage,
+) (events.APIGatewayProxyResponse, error) {
+	var (
+		method      = event.HTTPMethod
+		path        = event.Path
+		queryString = event.QueryStringParameters
+		body        = event.Body
+	)
+
+	if message == nil {
+		message = &respErrorMessage{Message: "Client error"}
+	}
+	var respBody string
+	respMsg, err := json.Marshal(*message)
+	if err != nil {
+		app.logger.Error(
+			"serverError failed to marshal response message",
+			slog.Any("message", message),
+		)
+		respBody = `{"message":"Internal server error"}`
+	} else {
+		app.logger.Error(
+			"client error",
+			slog.String("method", method),
+			slog.String("path", path),
+			slog.Any("queryString", queryString),
+			slog.String("body", body),
+		)
+		respBody = string(respMsg)
+	}
+
+	return events.APIGatewayProxyResponse{
+		StatusCode: status,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: respBody,
+	}, nil
 }
