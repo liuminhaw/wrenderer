@@ -97,7 +97,7 @@ func (h *handler) renderUrlHandler(
 	app := &lambdaApp.Application{
 		Logger: h.logger,
 	}
-	cachePath, err := app.RenderUrl(urlParam)
+	cachePath, err := app.RenderUrl(urlParam, true)
 	if err != nil {
 		return h.serverError(event, err, nil)
 	}
@@ -197,7 +197,8 @@ func (h *handler) renderSitemapHandler(
 	app := &lambdaApp.Application{
 		Logger: h.logger,
 	}
-	if err := app.RenderSitemap(payload.SitemapUrl); err != nil {
+	location, err := app.RenderSitemap(payload.SitemapUrl)
+	if err != nil {
 		return h.serverError(event, err, nil)
 	}
 
@@ -205,8 +206,11 @@ func (h *handler) renderSitemapHandler(
 		StatusCode: http.StatusAccepted,
 		Headers: map[string]string{
 			"Content-Type": "application/json",
-			"Location":     "/current/placeholder",
+			"Location":     fmt.Sprintf("/render/sitemap/%s/status", location),
 		},
-		Body: `{"message": "Sitemap rendering accepted"}`,
+		Body: fmt.Sprintf(
+			"{\"message\": \"Sitemap rendering accepted\", \"location\": \"/render/sitemap/%s/status\"}",
+			location,
+		),
 	}, nil
 }

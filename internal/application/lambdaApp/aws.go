@@ -52,8 +52,8 @@ func CheckObjectExists(client *s3.Client, objectKey string) (bool, error) {
 	return true, nil
 }
 
-// uploadToS3 uploads the content to S3 bucket with given object key
-func uploadToS3(client *s3.Client, objectKey string, content io.Reader) error {
+// UploadToS3 uploads the content to S3 bucket with given object key
+func UploadToS3(client *s3.Client, objectKey string, contentType string, content io.Reader) error {
 	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
 	if !exists {
 		return fmt.Errorf("uploadToS3: S3_BUCKET_NAME environment variable is not set")
@@ -66,7 +66,7 @@ func uploadToS3(client *s3.Client, objectKey string, content io.Reader) error {
 		Bucket:      &s3BucketName,
 		Key:         &objectKey,
 		Body:        content,
-		ContentType: aws.String("text/html"),
+		ContentType: aws.String(contentType),
 	})
 	if err != nil {
 		return fmt.Errorf("uploadToS3: failed to upload object: %w", err)
@@ -185,8 +185,8 @@ func deletePrefixFromS3(client *s3.Client, prefix string) error {
 // 	return nil
 // }
 
-// deleteObjectFromS3 deletes an object from S3 bucket with given object key
-func deleteObjectFromS3(client *s3.Client, objectKey string) error {
+// DeleteObjectFromS3 deletes an object from S3 bucket with given object key
+func DeleteObjectFromS3(client *s3.Client, objectKey string) error {
 	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
 	if !exists {
 		return fmt.Errorf("S3_BUCKET_NAME environment variable is not set")
