@@ -39,6 +39,10 @@ func lambdaHandler(event events.SQSEvent) error {
 		h.logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 
+	return h.sitemapHandler(event)
+}
+
+func (h *handler) sitemapHandler(event events.SQSEvent) error {
 	for _, message := range event.Records {
 		var payload workerQueuePayload
 		if err := json.Unmarshal([]byte(message.Body), &payload); err != nil {
@@ -62,7 +66,7 @@ func lambdaHandler(event events.SQSEvent) error {
 
 		cfg, err := config.LoadDefaultConfig(context.Background())
 		if err != nil {
-			return err
+			return h.workerError(message, err)
 		}
 		s3Client := s3.NewFromConfig(cfg)
 
@@ -72,56 +76,45 @@ func lambdaHandler(event events.SQSEvent) error {
 			lambdaApp.SitemapCategory,
 		)
 
+		// move job cache from queued to process
+		if err := lambdaApp.UploadToS3(
+			s3Client,
+			jobCache.ProcessPath(),
+			lambdaApp.PlainContentType,
+			bytes.NewReader([]byte(message.Body)),
+		); err != nil {
+			return h.workerError(message, err)
+		}
+		if err := lambdaApp.DeleteObjectFromS3(s3Client, jobCache.QueuedPath()); err != nil {
+			return h.workerError(message, err)
+		}
+
 		// render the target url
 		_, err = app.RenderUrl(payload.TargetUrl, false)
 		if err != nil {
-			h.logger.Error(
-				err.Error(),
-				slog.String("id", message.MessageId),
-				slog.Any("payload", payload),
-			)
-
-			// Create job cache in failure path
+			// Move job cache from process to failure
 			if err := lambdaApp.UploadToS3(
 				s3Client,
 				jobCache.FailurePath(),
 				lambdaApp.PlainContentType,
 				bytes.NewReader([]byte(message.Body)),
 			); err != nil {
-				h.logger.Error(
-					err.Error(),
-					slog.String("id", message.MessageId),
-					slog.Any("payload", payload),
-				)
-
-				return err
+				return h.workerError(message, err)
 			}
-
-            // Remove job from process path in cache
 			if err := lambdaApp.DeleteObjectFromS3(s3Client, jobCache.ProcessPath()); err != nil {
-				h.logger.Error(
-					err.Error(),
-					slog.String("id", message.MessageId),
-					slog.Any("payload", payload),
-				)
-				return err
+				return h.workerError(message, err)
 			} else {
 				h.logger.Debug(
 					fmt.Sprintf("Job cache %s deleted", jobCache.ProcessPath()),
 				)
 			}
 
-			return err
+			return h.workerError(message, err)
 		}
 
 		// Clean job cache
 		if err := lambdaApp.DeleteObjectFromS3(s3Client, jobCache.ProcessPath()); err != nil {
-			h.logger.Error(
-				err.Error(),
-				slog.String("id", message.MessageId),
-				slog.Any("payload", payload),
-			)
-			return err
+			return h.workerError(message, err)
 		} else {
 			h.logger.Debug(
 				fmt.Sprintf("Job cache %s deleted", jobCache.ProcessPath()),

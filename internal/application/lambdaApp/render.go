@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -113,6 +115,18 @@ func (app *Application) RenderSitemap(url string) (string, error) {
 		return "", err
 	}
 
+	// Upload render timestamp to S3
+	jobCache := wrender.NewSqsJobCache("", renderKey, SitemapCategory)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := UploadToS3(
+		s3Client,
+		filepath.Join(jobCache.KeyPath(), "timestamp"),
+		PlainContentType,
+		bytes.NewReader([]byte(now)),
+	); err != nil {
+		return "", err
+	}
+
 	for _, entry := range entries {
 		app.Logger.Debug(fmt.Sprintf("Entry: %s", entry.Loc))
 		payload, err := json.Marshal(workerQueuePayload{TargetUrl: entry.Loc, CacheKey: renderKey})
@@ -129,8 +143,9 @@ func (app *Application) RenderSitemap(url string) (string, error) {
 			slog.String("payload", string(payload)),
 		)
 
-		jobCache := wrender.NewSqsJobCache(messageId, renderKey, SitemapCategory)
-		if err := UploadToS3(s3Client, jobCache.ProcessPath(), PlainContentType, bytes.NewReader(payload)); err != nil {
+		// jobCache := wrender.NewSqsJobCache(messageId, renderKey, SitemapCategory)
+		jobCache.MessageId = messageId
+		if err := UploadToS3(s3Client, jobCache.QueuedPath(), PlainContentType, bytes.NewReader(payload)); err != nil {
 			return "", err
 		}
 	}

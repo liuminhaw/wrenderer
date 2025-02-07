@@ -16,8 +16,6 @@ type SqsJobCache struct {
 	MessageId string
 	Key       string
 	Category  string
-
-	storagePath string
 }
 
 func NewSqsJobCache(id, key, category string) *SqsJobCache {
@@ -26,6 +24,14 @@ func NewSqsJobCache(id, key, category string) *SqsJobCache {
 		Key:       key,
 		Category:  category,
 	}
+}
+
+func (j *SqsJobCache) KeyPath() string {
+	return fmt.Sprintf("%s/%s/%s", JobStatusPrefix, j.Category, j.Key)
+}
+
+func (j *SqsJobCache) QueuedPath() string {
+	return fmt.Sprintf("%s/%s/%s/queued/%s", JobStatusPrefix, j.Category, j.Key, j.MessageId)
 }
 
 func (j *SqsJobCache) ProcessPath() string {

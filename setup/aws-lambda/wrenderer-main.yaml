@@ -15,12 +15,18 @@ Parameters:
   WrendererImageDigest:
     Type: String
     Description: "ECR image digest (sha256 hash)"
-  WrendererBucketCacheExpirationInDays:
+  WrendererBucketPageCacheExpirationInDays:
     Type: Number
     Default: 7
     MinValue: 1
     MaxValue: 365
     Description: "Expiration days for page cache in s3 bucket"
+  WrendererBucketSitemapJobExpirationInDays:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: "Expiration days for sitemap jobs cache in s3 bucket"
   WrendererApiDeploymentStage:
     Type: String
     Default: default
@@ -88,10 +94,8 @@ Parameters:
     Type: String
     Description: "User agent string to use in the automated browser"
 
-
 Conditions:
   HasUserAgent: !Not [!Equals [!Ref WrendererUserAgent, ""]]
-
 
 Resources:
   WrendererBucket:
@@ -108,7 +112,11 @@ Resources:
           - Id: expire-page-cache
             Status: Enabled
             Prefix: "page/"
-            ExpirationInDays: !Ref WrendererBucketCacheExpirationInDays
+            ExpirationInDays: !Ref WrendererBucketPageCacheExpirationInDays
+          - Id: expire-jobs-sitemap-cache
+            Status: Enabled
+            Prefix: "jobs/sitemap/"
+            ExpirationInDays: !Ref WrendererBucketSitemapJobExpirationInDays
       Tags:
         - Key: wrenderer
           Value: !Ref WrendererName
@@ -217,7 +225,8 @@ Resources:
           WRENDERER_WINDOW_HEIGHT: !Ref WrendererWindowHeight
           WRENDERER_IDLE_TYPE: !Ref WrendererIdleType
           WRENDERER_DEBUG_MODE: !Ref WrendererDebugMode
-          WRENDERER_USER_AGENT: !If [HasUserAgent, !Ref WrendererUserAgent, !Ref "AWS::NoValue"]
+          WRENDERER_USER_AGENT:
+            !If [HasUserAgent, !Ref WrendererUserAgent, !Ref "AWS::NoValue"]
       FunctionName: !Sub "${WrendererName}-worker"
       MemorySize: !Ref WrendererFunctionMemory
       PackageType: Image
@@ -225,7 +234,7 @@ Resources:
       Tags:
         - Key: wrenderer
           Value: !Ref WrendererName
-      Timeout: 30
+      Timeout: 45
 
   WrendererWorkerQueue:
     Type: AWS::SQS::Queue
@@ -269,8 +278,9 @@ Resources:
           WRENDERER_WINDOW_WIDTH: !Ref WrendererWindowWidth
           WRENDERER_WINDOW_HEIGHT: !Ref WrendererWindowHeight
           WRENDERER_IDLE_TYPE: !Ref WrendererIdleType
-          WRENDERER_DEBUG_MODE: !Ref WrendererDebugMode 
-          WRENDERER_USER_AGENT: !If [HasUserAgent, !Ref WrendererUserAgent, !Ref "AWS::NoValue"]
+          WRENDERER_DEBUG_MODE: !Ref WrendererDebugMode
+          WRENDERER_USER_AGENT:
+            !If [HasUserAgent, !Ref WrendererUserAgent, !Ref "AWS::NoValue"]
       FunctionName: !Ref WrendererName
       MemorySize: !Ref WrendererFunctionMemory
       PackageType: Image
