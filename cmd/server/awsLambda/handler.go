@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/liuminhaw/wrenderer/internal"
@@ -34,8 +35,11 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 	handler.logger.Info(fmt.Sprintf("Request path: %s", event.Path))
 	handler.logger.Info(fmt.Sprintf("HTTP method: %s", event.HTTPMethod))
 
-	switch event.Path {
-	case "/render":
+	jobStatusPattern := regexp.MustCompile(
+		fmt.Sprintf("^/render/sitemap/[a-zA-Z]{6}-[a-zA-Z]{6}/status$"),
+	)
+	switch {
+	case "/render" == event.Path:
 		switch event.HTTPMethod {
 		case "GET":
 			handler.logger.Debug("request for rendering url")
@@ -52,11 +56,28 @@ func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyR
 				Body: "Method Not Allowed",
 			}, nil
 		}
-	case "/render/sitemap":
+	case "/render/sitemap" == event.Path:
 		switch event.HTTPMethod {
 		case "PUT":
 			handler.logger.Debug("request for rendering sitemap")
 			return handler.renderSitemapHandler(event)
+		default:
+			return events.APIGatewayProxyResponse{
+				StatusCode: 405,
+				Headers: map[string]string{
+					"Content-Type": "text/plain",
+				},
+				Body: "Method Not Allowed",
+			}, nil
+		}
+	case jobStatusPattern.MatchString(event.Path):
+		switch event.HTTPMethod {
+		case "GET":
+			handler.logger.Debug(
+				"request for checking job status",
+				slog.String("id", event.PathParameters["id"]),
+			)
+			return handler.checkJobStatusHandler(event)
 		default:
 			return events.APIGatewayProxyResponse{
 				StatusCode: 405,
@@ -212,5 +233,36 @@ func (h *handler) renderSitemapHandler(
 			"{\"message\": \"Sitemap rendering accepted\", \"location\": \"/render/sitemap/%s/status\"}",
 			location,
 		),
+	}, nil
+}
+
+type jobStatusResponse struct {
+	Status  string   `json:"status"`
+	Details []string `json:"details,omitempty"`
+}
+
+func (h *handler) checkJobStatusHandler(
+	event events.APIGatewayProxyRequest,
+) (events.APIGatewayProxyResponse, error) {
+	jobId := event.PathParameters["id"]
+	h.logger.Debug("Check job status", slog.String("jobId", jobId))
+
+	app := &lambdaApp.Application{Logger: h.logger}
+	statusResp, err := app.CheckRenderStatus(jobId)
+	if err != nil {
+		return h.serverError(event, err, nil)
+	}
+
+	responseBody, err := json.Marshal(statusResp)
+	if err != nil {
+		return h.serverError(event, err, nil)
+	}
+
+	return events.APIGatewayProxyResponse{
+		StatusCode: http.StatusOK,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: string(responseBody),
 	}, nil
 }

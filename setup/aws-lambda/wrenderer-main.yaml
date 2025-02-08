@@ -93,6 +93,11 @@ Parameters:
   WrendererUserAgent:
     Type: String
     Description: "User agent string to use in the automated browser"
+  WrendererJobExpirationInHours:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    Description: "Expiration hours wrenderer job in s3 cache"
 
 Conditions:
   HasUserAgent: !Not [!Equals [!Ref WrendererUserAgent, ""]]
@@ -275,6 +280,7 @@ Resources:
           S3_BUCKET_NAME: !Ref WrendererBucket
           S3_BUCKET_REGION: !Ref AWS::Region
           SQS_WORKER_QUEUE: !Ref WrendererWorkerQueue
+          JOB_EXPIRATION_IN_HOURS: !Ref WrendererJobExpirationInHours
           WRENDERER_WINDOW_WIDTH: !Ref WrendererWindowWidth
           WRENDERER_WINDOW_HEIGHT: !Ref WrendererWindowHeight
           WRENDERER_IDLE_TYPE: !Ref WrendererIdleType
@@ -351,6 +357,20 @@ Resources:
       PathPart: "sitemap"
       RestApiId: !Ref WrendererRestApi
 
+  WrendererApiResourceSitemapJob:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !Ref WrendererApiResourceSitemap
+      PathPart: "{id}"
+      RestApiId: !Ref WrendererRestApi
+
+  WrendererApiResourceSitemapJobStatus:
+    Type: "AWS::ApiGateway::Resource"
+    Properties:
+      ParentId: !Ref WrendererApiResourceSitemapJob
+      PathPart: "status"
+      RestApiId: !Ref WrendererRestApi
+
   WrendererApiMethodGet:
     Type: "AWS::ApiGateway::Method"
     Properties:
@@ -399,12 +419,29 @@ Resources:
       ResourceId: !Ref WrendererApiResource
       RestApiId: !Ref WrendererRestApi
 
+  WrendererApiMethodGetSitemapJob:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      ApiKeyRequired: True
+      AuthorizationType: "NONE"
+      HttpMethod: "GET"
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS_PROXY"
+        Uri:
+          Fn::Sub:
+            - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations
+            - lambdaArn: !GetAtt WrendererFunction.Arn
+      ResourceId: !Ref WrendererApiResourceSitemapJobStatus
+      RestApiId: !Ref WrendererRestApi
+
   WrendererApiDeployment:
     Type: AWS::ApiGateway::Deployment
     DependsOn:
       - WrendererApiMethodGet
       - WrendererApiMethodDelete
       - WrendererApiMethodPut
+      - WrendererApiMethodGetSitemapJob
     Properties:
       Description: "Api gateway deployment to given stage"
       RestApiId: !Ref WrendererRestApi
@@ -433,6 +470,14 @@ Resources:
       FunctionName: !GetAtt WrendererFunction.Arn
       Principal: "apigateway.amazonaws.com"
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WrendererRestApi}/${WrendererApiDeploymentStage}/DELETE/render
+
+  WrendererFunctionPermissionGetJobStatus:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt WrendererFunction.Arn
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WrendererRestApi}/${WrendererApiDeploymentStage}/GET/render/sitemap/*/status
 
 Outputs:
   WrendererBucket:

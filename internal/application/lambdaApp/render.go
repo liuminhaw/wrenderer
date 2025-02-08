@@ -25,10 +25,21 @@ type Application struct {
 }
 
 const (
+	JobKeyLength = 6
+
 	SitemapCategory = "sitemap"
 
 	HtmlContentType  = "text/html"
 	PlainContentType = "text/plain"
+
+	timestampFile = "timestamp"
+
+	jobStatusUnknown    = "unknown"
+	jobStatusQueued     = "queued"
+	jobStatusFailed     = "failed"
+	jobStatusProcessing = "processing"
+	jobStatusCompleted  = "completed"
+	jobStatusTimeout    = "timeout"
 )
 
 // RenderUrl will check if the given url is already rendered and cached in S3 bucket.
@@ -88,10 +99,6 @@ type workerQueuePayload struct {
 }
 
 func (app *Application) RenderSitemap(url string) (string, error) {
-	const (
-		jobKeyLength = 6
-	)
-
 	resp, err := http.Get(url)
 	if err != nil {
 		return "", err
@@ -110,7 +117,7 @@ func (app *Application) RenderSitemap(url string) (string, error) {
 	sqsClient := sqs.NewFromConfig(cfg)
 	s3Client := s3.NewFromConfig(cfg)
 
-	renderKey, err := wrender.RandomKey(jobKeyLength, jobKeyLength)
+	renderKey, err := wrender.RandomKey(JobKeyLength, JobKeyLength)
 	if err != nil {
 		return "", err
 	}
@@ -120,7 +127,7 @@ func (app *Application) RenderSitemap(url string) (string, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	if err := UploadToS3(
 		s3Client,
-		filepath.Join(jobCache.KeyPath(), "timestamp"),
+		filepath.Join(jobCache.KeyPath(), timestampFile),
 		PlainContentType,
 		bytes.NewReader([]byte(now)),
 	); err != nil {
@@ -171,7 +178,7 @@ func (app *Application) DeleteUrlRenderCache(url string) error {
 	}
 	// Remove the host prefix if no more objects are left
 	prefix := fmt.Sprintf("%s/", render.GetPrefixPath())
-	empty, err := checkDomainEmpty(sqsClient, prefix)
+	empty, err := checkBucketPrefixEmpty(sqsClient, prefix)
 	if err != nil {
 		return err
 	}
@@ -202,6 +209,85 @@ func (app *Application) DeleteDomainRenderCache(domain string) error {
 	}
 
 	return nil
+}
+
+type RenderStatusResp struct {
+	Status  string   `json:"status"`
+	Details []string `json:"details,omitempty"`
+}
+
+func (app *Application) CheckRenderStatus(key string) (RenderStatusResp, error) {
+	var expirationInHours int
+	var err error
+	expirationConfig, exists := os.LookupEnv("JOB_EXPIRATION_IN_HOURS")
+	if !exists {
+		expirationInHours = 1
+	} else {
+		expirationInHours, err = strconv.Atoi(expirationConfig)
+		if err != nil {
+			return RenderStatusResp{}, err
+		}
+	}
+
+	cfg, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		return RenderStatusResp{}, err
+	}
+	client := s3.NewFromConfig(cfg)
+
+	jobCache := wrender.NewSqsJobCache("", key, SitemapCategory)
+	queueEmpty, err := checkBucketPrefixEmpty(client, jobCache.QueuedPath())
+	if err != nil {
+		return RenderStatusResp{}, err
+	}
+	processEmpty, err := checkBucketPrefixEmpty(client, jobCache.ProcessPath())
+	if err != nil {
+	}
+	failureEmpty, err := checkBucketPrefixEmpty(client, jobCache.FailurePath())
+	if err != nil {
+		return RenderStatusResp{}, err
+	}
+
+	// Read job timestamp record
+	now := time.Now().UTC()
+	timestamp, err := readObjectFromS3(client, filepath.Join(jobCache.KeyPath(), timestampFile))
+	if err != nil {
+		return RenderStatusResp{}, err
+	}
+	parsedTime, err := time.Parse(time.RFC3339, string(timestamp))
+	if err != nil {
+		return RenderStatusResp{}, err
+	}
+	if now.Sub(parsedTime) > time.Duration(expirationInHours)*time.Hour {
+		return RenderStatusResp{Status: jobStatusTimeout}, nil
+	}
+
+	if !queueEmpty || !processEmpty {
+		return RenderStatusResp{Status: jobStatusProcessing}, nil
+	} else if !failureEmpty {
+		failureResp := RenderStatusResp{Status: jobStatusFailed, Details: []string{}}
+		failureKeys, err := ListObjectsFromS3(client, jobCache.FailurePath())
+		if err != nil {
+			return RenderStatusResp{}, err
+		}
+		for _, key := range failureKeys {
+			app.Logger.Debug(fmt.Sprintf("Failure key: %s", key))
+			content, err := readObjectFromS3(client, key)
+			if err != nil {
+				return RenderStatusResp{}, err
+			}
+
+			var queuePayload workerQueuePayload
+			if err := json.Unmarshal(content, &queuePayload); err != nil {
+				return RenderStatusResp{}, err
+			}
+			failureResp.Details = append(failureResp.Details, queuePayload.TargetUrl)
+		}
+
+		return failureResp, nil
+	}
+
+	return RenderStatusResp{Status: jobStatusCompleted}, nil
 }
 
 func (app *Application) renderPage(urlParam string) ([]byte, error) {

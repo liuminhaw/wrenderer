@@ -75,6 +75,74 @@ func UploadToS3(client *s3.Client, objectKey string, contentType string, content
 	return nil
 }
 
+// DeleteObjectFromS3 deletes an object from S3 bucket with given object key
+func DeleteObjectFromS3(client *s3.Client, objectKey string) error {
+	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
+	if !exists {
+		return fmt.Errorf("S3_BUCKET_NAME environment variable is not set")
+	}
+
+	_, err := client.DeleteObject(context.Background(), &s3.DeleteObjectInput{
+		Bucket: aws.String(s3BucketName),
+		Key:    aws.String(objectKey),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete object: %w", err)
+	}
+
+	return nil
+}
+
+func ListObjectsFromS3(client *s3.Client, prefix string) ([]string, error) {
+	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
+	if !exists {
+		return nil, fmt.Errorf("S3_BUCKET_NAME environment variable is not set")
+	}
+
+	paginator := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
+		Bucket:     aws.String(s3BucketName),
+		Prefix:     aws.String(prefix),
+		StartAfter: aws.String(prefix),
+	})
+
+	var objects []string
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.Background())
+		if err != nil {
+			return nil, err
+		}
+
+		for _, obj := range page.Contents {
+			objects = append(objects, *obj.Key)
+		}
+	}
+
+	return objects, nil
+}
+
+func readObjectFromS3(client *s3.Client, objectKey string) ([]byte, error) {
+	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
+	if !exists {
+		return nil, fmt.Errorf("S3_BUCKET_NAME environment variable is not set")
+	}
+
+	obj, err := client.GetObject(context.Background(), &s3.GetObjectInput{
+		Bucket: aws.String(s3BucketName),
+		Key:    aws.String(objectKey),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer obj.Body.Close()
+
+	content, err := io.ReadAll(obj.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return content, nil
+}
+
 func sendMessageToQueue(client *sqs.Client, message string) (string, error) {
 	queueUrl, exists := os.LookupEnv("SQS_WORKER_QUEUE")
 	if !exists {
@@ -91,20 +159,6 @@ func sendMessageToQueue(client *sqs.Client, message string) (string, error) {
 
 	return *resp.MessageId, nil
 }
-
-// func clearDomainCache(client *s3.Client, domain string) error {
-// 	render, err := wrender.NewWrender(domain)
-// 	if err != nil {
-// 		return fmt.Errorf("clearDomainCache: %w", err)
-// 	}
-//
-// 	prefix := fmt.Sprintf("%s/", render.GetPrefixPath())
-// 	if err := deletePrefixFromS3(client, prefix); err != nil {
-// 		return fmt.Errorf("clearDomainCache: delete domain cache: %w", err)
-// 	}
-//
-// 	return nil
-// }
 
 // deletePrefixFromS3 deletes all objects matching given prefix from S3 bucket
 func deletePrefixFromS3(client *s3.Client, prefix string) error {
@@ -160,53 +214,11 @@ func deletePrefixFromS3(client *s3.Client, prefix string) error {
 	return nil
 }
 
-// func clearUrlCache(client *s3.Client, urlParam string) error {
-// 	render, err := wrender.NewWrender(urlParam)
-// 	if err != nil {
-// 		return fmt.Errorf("clearUrlCache: new wrender: %w", err)
-// 	}
-//
-// 	// Remove the object from s3
-// 	if err := deleteObjectFromS3(client, render.CachePath); err != nil {
-// 		return fmt.Errorf("clearUrlCache: delete object: %w", err)
-// 	}
-// 	// Remove the host prefix if no more objects are left
-// 	prefix := fmt.Sprintf("%s/", render.GetPrefixPath())
-// 	empty, err := checkDomainEmpty(client, prefix)
-// 	if err != nil {
-// 		return fmt.Errorf("clearUrlCache: check empty domain cache: %w", err)
-// 	}
-// 	if empty {
-// 		if err := deletePrefixFromS3(client, prefix); err != nil {
-// 			return fmt.Errorf("clearUrlCache: delete domain cache: %w", err)
-// 		}
-// 	}
-//
-// 	return nil
-// }
-
-// DeleteObjectFromS3 deletes an object from S3 bucket with given object key
-func DeleteObjectFromS3(client *s3.Client, objectKey string) error {
-	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
-	if !exists {
-		return fmt.Errorf("S3_BUCKET_NAME environment variable is not set")
-	}
-
-	_, err := client.DeleteObject(context.Background(), &s3.DeleteObjectInput{
-		Bucket: aws.String(s3BucketName),
-		Key:    aws.String(objectKey),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete object: %w", err)
-	}
-
-	return nil
-}
-
-// checkDomainEmpty checks if a bucket is empty under given prefix
-// Returns true if the bucket is empty and false if it is not empty
+// checkBucketPrefixEmpty checks if a bucket is empty under given prefix
+// Returns true if the bucket under given prefix is empty and
+// false if it is not empty.
 // Error is returned if there is an error checking the bucket
-func checkDomainEmpty(client *s3.Client, prefix string) (bool, error) {
+func checkBucketPrefixEmpty(client *s3.Client, prefix string) (bool, error) {
 	s3BucketName, exists := os.LookupEnv("S3_BUCKET_NAME")
 	if !exists {
 		return false, fmt.Errorf(
