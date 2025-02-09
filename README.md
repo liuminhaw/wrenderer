@@ -22,6 +22,30 @@ Invalidate whole domain
 curl -X DELETE -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/render?domain=www.target.com"
 ```
 
+### Sitemap prerender
+
+Read content from the given sitemap url and render each url to create cache beforehand
+
+```bash
+curl -i -X PUT -H 'x-api-key: YOUR-API-KEY' -H "Content-Type: application/json" -d '{"sitemapUrl": "https://wrenderer.example.com/sitemap.xml"}' "https://wrenderer.example.com/render/sitemap"
+```
+
+**Response**
+```json
+{
+    "message": "Sitemap rendering accepted", 
+    "location": "/render/sitemap/xxxxxx-xxxxxx/status"
+}
+```
+
+This is an async operation, it will return `202` status code with `location` header to check the status of the operation. The status check location url will also be in the response body with `location` key.
+
+#### Status check
+To check the status of the sitemap rendering operation, use the request path from the location URL returned by the operation. This URL is provided either in the location header or in the location key of the response body, which will display the current status of the operation.
+```bash
+curl -i -X GET -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/render/sitemap/xxxxxx-xxxxxx/status"
+```
+
 ### Note
 
 url passed to `url` parameter should be encoded for parsing to work correctly
