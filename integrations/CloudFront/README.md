@@ -47,5 +47,7 @@
    - Publish new version of origin request lambda function for using in
      CloudFront
 
-1. Set view request and origin request lambda function ARN in CloudFront
-   behaviors in which needed to perform the bot detection and rendering.
+1. Configure the CloudFront behaviors with the ARNs for the view request and
+   origin request Lambda function versions, along with the cache policy and
+   origin request policy created by the CloudFormation template, which are
+   required for bot detection and rendering.

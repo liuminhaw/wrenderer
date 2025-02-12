@@ -6,6 +6,21 @@ Parameters:
     Type: String
     Description: "Base name for creating wrenderer resources"
 
+  CachePolicyDefaultTTL:
+    Type: Number
+    Description: "Default TTL for cache policy"
+    Default: 86400
+
+  CachePolicyMaxTTL:
+    Type: Number
+    Description: "Max TTL for cache policy"
+    Default: 31536000
+
+  CachePolicyMinTTL:
+    Type: Number
+    Description: "Min TTL for cache policy"
+    Default: 0
+
 Resources:
   LambdaEdgeRole:
     Type: "AWS::IAM::Role"
@@ -74,6 +89,43 @@ Resources:
           def lambda_handler(event, context):
               return "Hello, World!"
 
+  CloudFrontCachePolicy:
+    Type: "AWS::CloudFront::CachePolicy"
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${WrendererName}-cache-policy"
+        Comment: "Custom cache policy for wrenderer edge function"
+        DefaultTTL: !Ref CachePolicyDefaultTTL
+        MaxTTL: !Ref CachePolicyMaxTTL
+        MinTTL: !Ref CachePolicyMinTTL
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: "none"
+          HeadersConfig:
+            HeaderBehavior: "whitelist"
+            Headers:
+              - "User-Agent"
+          QueryStringsConfig:
+            QueryStringBehavior: "all"
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+
+  CloudFrontOriginRequestPolicy:
+    Type: "AWS::CloudFront::OriginRequestPolicy"
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "${WrendererName}-origin-request-policy"
+        Comment: "Custom origin request policy for wrenderer edge function"
+        CookiesConfig:
+          CookieBehavior: "all"
+        HeadersConfig:
+          HeaderBehavior: "whitelist"
+          Headers:
+            - "x-should-render"
+            - "x-target"
+        QueryStringsConfig:
+          QueryStringBehavior: "all"
+
 Outputs:
   LambdaEdgeRoleName:
     Description: "Name of the role for Lambda@Edge functions"
@@ -93,3 +145,10 @@ Outputs:
   LambdaEdgeViewerRequestArn:
     Description: "ARN of the Lambda@Edge function for viewer request"
     Value: !GetAtt LambdaEdgeViewerRequest.Arn
+  CloudFrontCachePolicyId:
+    Description: "ID of the created CloudFront cache policy"
+    Value: !Ref CloudFrontCachePolicy
+  CloudFrontOriginRequestPolicyId:
+    Description: "ID of the created CloudFront origin request policy"
+    Value: !Ref CloudFrontOriginRequestPolicy
+
