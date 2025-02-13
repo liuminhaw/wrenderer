@@ -12,7 +12,11 @@ windowWidth = 1920
 windowHeight = 1080
 userAgent = ""
 container = false
-headless = false
+headless = true
 timeout = 30
+
+[queue]
+capacity = 1
+workers = 1
 
 

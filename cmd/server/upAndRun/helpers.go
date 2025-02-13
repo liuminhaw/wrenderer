@@ -5,9 +5,23 @@ import (
 	"net/http"
 	"runtime/debug"
 
+	"github.com/boltdb/bolt"
 	"github.com/liuminhaw/renderer"
 	"github.com/spf13/viper"
 )
+
+type application struct {
+	logger      *slog.Logger
+	port        int
+	db          *bolt.DB
+	renderQueue chan renderJob
+}
+
+func (app *application) startWorkers(workersCount int) {
+	for i := 0; i < workersCount; i++ {
+		go app.renderPage(viper.GetViper(), i)
+	}
+}
 
 // The serverError helper writes a log entry at Error level (including the request
 // method and URI as attributes), then sends a generic 500 Internal Server Error

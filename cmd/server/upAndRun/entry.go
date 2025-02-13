@@ -7,16 +7,12 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/boltdb/bolt"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
-type application struct {
-	logger *slog.Logger
-	port   int
-}
-
-func Start() {
+func Start() error {
 	pflag.Bool("debug", false, "Enable debug mode")
 	pflag.Bool(
 		"chromiumDebug",
@@ -49,12 +45,29 @@ func Start() {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 
+	// Create boltdb connection
+	db, err := bolt.Open(viper.GetString("cache.path"), 0600, nil)
+	if err != nil {
+		logger.Error(fmt.Sprintf("Error opening cache: %s", err))
+		return err
+	}
+	defer db.Close()
+
 	// Initialize a new instance of our application struct, containing the dependencies.
 	app := &application{
-		logger: logger,
-		port:   viper.GetInt("app.port"),
+		logger:      logger,
+		port:        viper.GetInt("app.port"),
+		db:          db,
+		renderQueue: make(chan renderJob, viper.GetInt("queue.capacity")),
 	}
+
+	app.startWorkers(viper.GetInt("queue.workers"))
 
 	logger.Info("starting server", slog.Int("port", app.port))
 	err = http.ListenAndServe(fmt.Sprintf(":%d", app.port), app.routes())
+	if err != nil {
+		logger.Error(fmt.Sprintf("Error starting server: %s", err))
+		return err
+	}
+	return nil
 }

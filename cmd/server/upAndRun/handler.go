@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/boltdb/bolt"
-	"github.com/liuminhaw/renderer"
 	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/wrender"
 	"github.com/spf13/viper"
@@ -17,19 +15,11 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get query parameters
 		url := r.URL.Query().Get("url")
-		app.logger.Debug(fmt.Sprintf("url: %s", url), slog.String("request", r.URL.String()))
+		app.logger.Info(fmt.Sprintf("url: %s", url), slog.String("request", r.URL.String()))
 		if url == "" {
 			app.clientError(w, http.StatusBadRequest)
 			return
 		}
-
-		// Create boltdb instance
-		db, err := bolt.Open(viper.GetString("cache.path"), 0600, nil)
-		if err != nil {
-			app.serverError(w, r, err)
-			return
-		}
-		defer db.Close()
 
 		render, err := wrender.NewWrender(url)
 		if err != nil {
@@ -37,21 +27,20 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			return
 		}
 
-		// exists, err := checkObjectExists(render.Response.Path)
-		// caching := wrender.NewCaching(db, render.GetHostPath(), render.Response.Path)
-		caching, err := wrender.NewBoltCaching(db, render.CachePath)
+		caching, err := wrender.NewBoltCaching(app.db, render.CachePath)
 		if err != nil {
 			app.serverError(w, r, err)
 			return
 		}
 
+		app.logger.Debug("Checking cache", slog.String("url", url))
 		exists, err := caching.IsValid()
 		if err != nil {
 			app.serverError(w, r, err)
 			return
 		}
+		app.logger.Debug("Checking cache done", slog.String("url", url))
 		if exists {
-			// TODO: Don't need to render page. Get the cached content and return it.
 			app.logger.Debug(
 				"Cache exists",
 				slog.String("RootBucket", caching.RootBucket),
@@ -68,16 +57,6 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 				app.serverError(w, r, err)
 				return
 			}
-			// message := fmt.Sprintf(
-			// 	"Cache path: %s/%s/%s\nCache content: %s\n",
-			// 	caching.RootBucket,
-			// 	caching.HostBucket,
-			// 	caching.CachedKey,
-			// 	decompressContent,
-			// )
-
-			// fmt.Fprintln(w, message)
-			// fmt.Fprint(w, string(decompressContent))
 			w.Write(decompressContent)
 			return
 		} else {
@@ -88,16 +67,25 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 				slog.String("CachedKey", caching.CachedKey),
 			)
 
-			// Render the page
-			render := renderer.NewRenderer(renderer.WithLogger(app.logger))
-			content, err := render.RenderPage(url, rendererOption(config))
-			if err != nil {
-				app.serverError(w, r, err)
+			// Add render job to queue
+			var result renderJobResult
+			job := renderJob{url: url, result: make(chan renderJobResult, 1)}
+			select {
+			case app.renderQueue <- job:
+				// Wait for the job to be processed
+				app.logger.Info("Job added to queue", slog.String("url", url))
+				result = <-job.result
+				if result.err != nil {
+					app.serverError(w, r, result.err)
+					return
+				}
+			default:
+				app.clientError(w, http.StatusTooManyRequests)
 				return
 			}
 
 			// Save the rendered page to cache
-			compressedContent, err := internal.Compress(content)
+			compressedContent, err := internal.Compress(result.content)
 			if err != nil {
 				app.serverError(w, r, err)
 				return
@@ -114,7 +102,8 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			}
 
 			w.Header().Set("Content-Type", "text/html")
-			w.Write(content)
+			w.WriteHeader(http.StatusOK)
+			w.Write(result.content)
 		}
 	}
 }
