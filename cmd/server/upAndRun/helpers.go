@@ -17,12 +17,6 @@ type application struct {
 	renderQueue chan renderJob
 }
 
-func (app *application) startWorkers(workersCount int) {
-	for i := 0; i < workersCount; i++ {
-		go app.renderPage(viper.GetViper(), i)
-	}
-}
-
 // The serverError helper writes a log entry at Error level (including the request
 // method and URI as attributes), then sends a generic 500 Internal Server Error
 // response to the user.

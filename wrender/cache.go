@@ -30,7 +30,7 @@ func NewBoltCached(url string, content []byte, ttl time.Duration) BoltCached {
 
 // BoltCaching is a struct that holds the path to the cached file.
 type BoltCaching struct {
-	db         *bolt.DB
+	DB         *bolt.DB
 	RootBucket string
 	HostBucket string
 	CachedKey  string
@@ -51,7 +51,7 @@ func NewBoltCaching(db *bolt.DB, param string) (BoltCaching, error) {
 	}
 
 	return BoltCaching{
-		db:         db,
+		DB:         db,
 		RootBucket: parts[0],
 		HostBucket: parts[1],
 		CachedKey:  parts[2],
@@ -59,7 +59,7 @@ func NewBoltCaching(db *bolt.DB, param string) (BoltCaching, error) {
 }
 
 func (c BoltCaching) Update(cached BoltCached) error {
-	return c.db.Update(func(tx *bolt.Tx) error {
+	return c.DB.Update(func(tx *bolt.Tx) error {
 		rootBucket, err := tx.CreateBucketIfNotExists([]byte(c.RootBucket))
 		if err != nil {
 			return err
@@ -82,7 +82,7 @@ func (c BoltCaching) Update(cached BoltCached) error {
 func (c BoltCaching) Read() (BoltCached, error) {
 	var cached BoltCached
 
-	err := c.db.View(func(tx *bolt.Tx) error {
+	err := c.DB.View(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket([]byte(c.RootBucket))
 		if rootBucket == nil {
 			return fmt.Errorf("root bucket %s not found", c.RootBucket)
@@ -108,6 +108,46 @@ func (c BoltCaching) Read() (BoltCached, error) {
 	return cached, nil
 }
 
+func (c BoltCaching) Cleanup() error {
+	return c.DB.Update(func(tx *bolt.Tx) error {
+		rootBucket := tx.Bucket([]byte(c.RootBucket))
+		if rootBucket == nil {
+			return nil
+		}
+
+		if err := c.cleanBucket(rootBucket); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func (c BoltCaching) cleanBucket(bucket *bolt.Bucket) error {
+	return bucket.ForEach(func(k, v []byte) error {
+		if v == nil {
+			// This is a nested bucket
+			nestedBucket := bucket.Bucket(k)
+			if err := c.cleanBucket(nestedBucket); err != nil {
+				return err
+			}
+		} else {
+			var cache BoltCached
+			if err := json.Unmarshal(v, &cache); err != nil {
+				return err
+			}
+
+			if time.Now().After(cache.Expires) {
+				if err := bucket.Delete(k); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
 type BoltCachedInfo struct {
 	Path    string    `json:"path"`
 	Url     string    `json:"url"`
@@ -118,7 +158,7 @@ type BoltCachedInfo struct {
 func (c BoltCaching) List() ([]BoltCachedInfo, error) {
 	var caches []BoltCachedInfo
 
-	err := c.db.View(func(tx *bolt.Tx) error {
+	err := c.DB.View(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket([]byte(c.RootBucket))
 		if rootBucket == nil {
 			return fmt.Errorf("root bucket %s not found", c.RootBucket)
@@ -172,7 +212,7 @@ func (c BoltCaching) IsValid() (bool, error) {
 // exists checks the existence of the cache key.
 func (c BoltCaching) exists() (bool, error) {
 	var exists bool
-	err := c.db.View(func(tx *bolt.Tx) error {
+	err := c.DB.View(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket([]byte(c.RootBucket))
 		if rootBucket == nil {
 			return nil
@@ -198,7 +238,7 @@ func (c BoltCaching) exists() (bool, error) {
 func (c BoltCaching) expired() (bool, error) {
 	var expired bool
 
-	err := c.db.View(func(tx *bolt.Tx) error {
+	err := c.DB.View(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket([]byte(c.RootBucket))
 		if rootBucket == nil {
 			return nil

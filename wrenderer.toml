@@ -6,6 +6,7 @@ enabled = true
 type = "boltdb"
 path = "cache.db"
 durationInMinutes = 60
+cleanupIntervalInMinutes = 60
 
 [renderer]
 windowWidth = 1920
@@ -18,5 +19,6 @@ timeout = 30
 [queue]
 capacity = 1
 workers = 1
+
 
 

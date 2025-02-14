@@ -62,6 +62,7 @@ func Start() error {
 	}
 
 	app.startWorkers(viper.GetInt("queue.workers"))
+	go app.startCacheCleaner(viper.GetInt("cache.cleanupIntervalInMinutes"))
 
 	logger.Info("starting server", slog.Int("port", app.port))
 	err = http.ListenAndServe(fmt.Sprintf(":%d", app.port), app.routes())
