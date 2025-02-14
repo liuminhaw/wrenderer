@@ -1,6 +1,7 @@
 package upAndRun
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -21,13 +22,7 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			return
 		}
 
-		render, err := wrender.NewWrender(url)
-		if err != nil {
-			app.serverError(w, r, err)
-			return
-		}
-
-		caching, err := wrender.NewBoltCaching(app.db, render.CachePath)
+		caching, err := wrender.NewBoltCaching(app.db, url)
 		if err != nil {
 			app.serverError(w, r, err)
 			return
@@ -92,6 +87,7 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			}
 			cacheDuration := config.GetInt("cache.durationInMinutes")
 			cacheItem := wrender.NewBoltCached(
+				url,
 				compressedContent,
 				time.Duration(cacheDuration)*time.Minute,
 			)
@@ -106,4 +102,45 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			w.Write(result.content)
 		}
 	}
+}
+
+type renderedCachesResponse struct {
+	Caches []wrender.BoltCachedInfo `json:"caches"`
+}
+
+func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Request) {
+	// Get query parameters
+	domain := r.URL.Query().Get("domain")
+	app.logger.Info(fmt.Sprintf("domain: %s", domain), slog.String("request", r.URL.String()))
+	if domain == "" {
+		app.clientError(w, http.StatusBadRequest)
+		return
+	}
+
+	caching, err := wrender.NewBoltCaching(app.db, domain)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	caches, err := caching.List()
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	cachesResponse := renderedCachesResponse{}
+	for _, cache := range caches {
+		cachesResponse.Caches = append(cachesResponse.Caches, cache)
+	}
+
+	response, err := json.Marshal(cachesResponse)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
 }

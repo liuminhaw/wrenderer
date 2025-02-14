@@ -10,6 +10,8 @@ curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/render?url=http
 
 ### Cache invalidation
 
+> Note: Currently implement in aws lambda type only
+
 Invalidate single url
 
 ```bash
@@ -23,6 +25,8 @@ curl -X DELETE -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/rende
 ```
 
 ### Sitemap prerender
+
+> Note: Currently implement in aws lambda type only
 
 Read content from the given sitemap url and render each url to create cache beforehand
 
@@ -44,6 +48,14 @@ This is an async operation, it will return `202` status code with `location` hea
 To check the status of the sitemap rendering operation, use the request path from the location URL returned by the operation. This URL is provided either in the location header or in the location key of the response body, which will display the current status of the operation.
 ```bash
 curl -i -X GET -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/render/sitemap/xxxxxx-xxxxxx/status"
+```
+
+### List rendered caches
+
+> Note: Currently implement in local build type only
+
+```bash
+curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/renders?domain=www.target.com"
 ```
 
 ### Note
