@@ -16,13 +16,17 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Get query parameters
 		url := r.URL.Query().Get("url")
-		app.logger.Info(fmt.Sprintf("url: %s", url), slog.String("request", r.URL.String()))
+		app.logger.Info(
+			fmt.Sprintf("url: %s", url),
+			slog.String("request", r.URL.String()),
+			slog.String("method", r.Method),
+		)
 		if url == "" {
 			app.clientError(w, http.StatusBadRequest)
 			return
 		}
 
-		caching, err := wrender.NewBoltCaching(app.db, url)
+		caching, err := wrender.NewBoltCaching(app.db, url, wrender.BoltEntry)
 		if err != nil {
 			app.serverError(w, r, err)
 			return
@@ -111,13 +115,17 @@ type renderedCachesResponse struct {
 func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Request) {
 	// Get query parameters
 	domain := r.URL.Query().Get("domain")
-	app.logger.Info(fmt.Sprintf("domain: %s", domain), slog.String("request", r.URL.String()))
+	app.logger.Info(
+		fmt.Sprintf("domain: %s", domain),
+		slog.String("request", r.URL.String()),
+		slog.String("method", r.Method),
+	)
 	if domain == "" {
 		app.clientError(w, http.StatusBadRequest)
 		return
 	}
 
-	caching, err := wrender.NewBoltCaching(app.db, domain)
+	caching, err := wrender.NewBoltCaching(app.db, domain, wrender.BoltBucket)
 	if err != nil {
 		app.serverError(w, r, err)
 		return
@@ -143,4 +151,50 @@ func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(response)
+}
+
+func (app *application) deleteRenderedCache(w http.ResponseWriter, r *http.Request) {
+	// Get query parameters
+	app.logger.Info(
+		"delete rendered cache",
+		slog.String("request", r.URL.String()),
+		slog.String("method", r.Method),
+	)
+	urlParam := r.URL.Query().Get("url")
+	domainParam := r.URL.Query().Get("domain")
+	app.logger.Debug(
+		"Delete rendered cache",
+		slog.String("url param", urlParam),
+		slog.String("domain param", domainParam),
+	)
+
+	if urlParam == "" && domainParam == "" {
+		app.clientError(w, http.StatusBadRequest)
+		return
+	}
+
+	var caching wrender.BoltCaching
+	var param string
+	var cacheType wrender.CacheType
+	switch {
+	case domainParam != "":
+		param = domainParam
+		cacheType = wrender.BoltBucket
+	case urlParam != "":
+		param = urlParam
+		cacheType = wrender.BoltEntry
+	default:
+		app.clientError(w, http.StatusBadRequest)
+		return
+	}
+
+	caching, err := wrender.NewBoltCaching(app.db, param, cacheType)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+	if err := caching.Delete(); err != nil {
+		app.serverError(w, r, err)
+		return
+	}
 }

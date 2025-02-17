@@ -22,12 +22,12 @@ type Wrender struct {
 	CachePath string
 }
 
-func NewWrender(urlParam string) (*Wrender, error) {
-	if !strings.Contains(urlParam, "://") {
-		urlParam = fmt.Sprintf("dummy://%s", urlParam)
+func NewWrender(param string) (*Wrender, error) {
+	if !strings.Contains(param, "://") {
+		param = fmt.Sprintf("dummy://%s", param)
 	}
 
-	target, err := url.Parse(urlParam)
+	target, err := url.Parse(param)
 	if err != nil {
 		return nil, fmt.Errorf("new wrender: %w", err)
 	}
@@ -36,7 +36,7 @@ func NewWrender(urlParam string) (*Wrender, error) {
 		return nil, fmt.Errorf("new wrender: empty hostname")
 	}
 
-	key, err := internal.Sha256Key([]byte(urlParam))
+	key, err := internal.Sha256Key([]byte(param))
 	if err != nil {
 		return nil, fmt.Errorf("new wrender: %w", err)
 	}

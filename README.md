@@ -10,8 +10,6 @@ curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/render?url=http
 
 ### Cache invalidation
 
-> Note: Currently implement in aws lambda type only
-
 Invalidate single url
 
 ```bash

@@ -10,6 +10,13 @@ import (
 	"github.com/boltdb/bolt"
 )
 
+type CacheType int
+
+const (
+	BoltBucket CacheType = iota
+	BoltEntry
+)
+
 // BoltCached stores the cached content, creation time, and expiration time.
 // This is the information that will be stored in the cache file using JSON format.
 type BoltCached struct {
@@ -34,12 +41,13 @@ type BoltCaching struct {
 	RootBucket string
 	HostBucket string
 	CachedKey  string
+	Type       CacheType
 }
 
 // NewBoltCaching creates a Caching struct from the given path.
 // The path should have the format of "{RootBucket}/{HostBucket}/{CachedKey}".
 // Each part of the path is separated by a slash and will be assigned to the struct fields.
-func NewBoltCaching(db *bolt.DB, param string) (BoltCaching, error) {
+func NewBoltCaching(db *bolt.DB, param string, cacheType CacheType) (BoltCaching, error) {
 	render, err := NewWrender(param)
 	if err != nil {
 		return BoltCaching{}, err
@@ -55,6 +63,7 @@ func NewBoltCaching(db *bolt.DB, param string) (BoltCaching, error) {
 		RootBucket: parts[0],
 		HostBucket: parts[1],
 		CachedKey:  parts[2],
+		Type:       cacheType,
 	}, nil
 }
 
@@ -108,6 +117,7 @@ func (c BoltCaching) Read() (BoltCached, error) {
 	return cached, nil
 }
 
+// Cleanup removes all expired cache entries.
 func (c BoltCaching) Cleanup() error {
 	return c.DB.Update(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket([]byte(c.RootBucket))
@@ -115,37 +125,80 @@ func (c BoltCaching) Cleanup() error {
 			return nil
 		}
 
-		if err := c.cleanBucket(rootBucket); err != nil {
-			return err
+		return c.cleanBucket(rootBucket, true)
+	})
+}
+
+// Delete removes the cache with the given entry. The targetType parameter specifies
+// what type of cache to delete. If teh targetType is TargetTypeBucket, it will remove
+// all the cache entries in the bucket. If the targetType is TargetTypeEntry, it will
+// only remove that cache entry.
+func (c BoltCaching) Delete() error {
+	return c.DB.Update(func(tx *bolt.Tx) error {
+		rootBucket := tx.Bucket([]byte(c.RootBucket))
+		if rootBucket == nil {
+			return fmt.Errorf("root bucket %s not found", c.RootBucket)
+		}
+
+		hostBucket := rootBucket.Bucket([]byte(c.HostBucket))
+		if hostBucket == nil {
+			return fmt.Errorf("host bucket %s not found", c.HostBucket)
+		}
+
+		switch c.Type {
+		case BoltBucket:
+			return c.cleanBucket(hostBucket, false)
+		case BoltEntry:
+			return c.cleanKey(hostBucket, []byte(c.CachedKey), false)
+		default:
+			return fmt.Errorf("invalid target type: %d", c.Type)
+		}
+	})
+}
+
+func (c BoltCaching) cleanBucket(bucket *bolt.Bucket, expired bool) error {
+	return bucket.ForEach(func(k, v []byte) error {
+		if v == nil {
+			// This is a nested bucket
+			nestedBucket := bucket.Bucket(k)
+			if err := c.cleanBucket(nestedBucket, expired); err != nil {
+				return err
+			}
+		} else {
+			c.cleanKey(bucket, k, expired)
 		}
 
 		return nil
 	})
 }
 
-func (c BoltCaching) cleanBucket(bucket *bolt.Bucket) error {
-	return bucket.ForEach(func(k, v []byte) error {
-		if v == nil {
-			// This is a nested bucket
-			nestedBucket := bucket.Bucket(k)
-			if err := c.cleanBucket(nestedBucket); err != nil {
-				return err
-			}
-		} else {
-			var cache BoltCached
-			if err := json.Unmarshal(v, &cache); err != nil {
-				return err
-			}
+// cleanKey remove the cache entry key from the bucket. If the expired is set to true,
+// it will check for the expireation time of the cache and only remove the cache if
+// it is expired. Otherwise, it will remove the cache entry regardless of the
+// expiration time.
+func (c BoltCaching) cleanKey(bucket *bolt.Bucket, key []byte, expired bool) error {
+	entry := bucket.Get(key)
+	if entry == nil {
+		return nil
+	}
 
-			if time.Now().After(cache.Expires) {
-				if err := bucket.Delete(k); err != nil {
-					return err
-				}
+	if expired {
+		var cache BoltCached
+		if err := json.Unmarshal(entry, &cache); err != nil {
+			return err
+		}
+		if time.Now().After(cache.Expires) {
+			if err := bucket.Delete(key); err != nil {
+				return err
 			}
 		}
+	} else {
+		if err := bucket.Delete(key); err != nil {
+			return err
+		}
+	}
 
-		return nil
-	})
+	return nil
 }
 
 type BoltCachedInfo struct {
