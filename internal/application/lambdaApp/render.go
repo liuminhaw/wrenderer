@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/liuminhaw/renderer"
-	"github.com/liuminhaw/sitemapHelper"
+	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/wrender"
 )
 
@@ -50,7 +49,7 @@ const (
 // The cached object path will be returned if no error occurred, otherwise an error
 // will be returned.
 func (app *Application) RenderUrl(url string, existenceCheck bool) (string, error) {
-	render, err := wrender.NewWrender(url)
+	render, err := wrender.NewWrender(url, wrender.CachedPagePrefix)
 	if err != nil {
 		return "", err
 	}
@@ -99,12 +98,7 @@ type workerQueuePayload struct {
 }
 
 func (app *Application) RenderSitemap(url string) (string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", err
-	}
-
-	entries, err := sitemapHelper.ParseSitemap(resp.Body)
+	entries, err := internal.ParseSitemap(url)
 	if err != nil {
 		return "", err
 	}
@@ -167,7 +161,7 @@ func (app *Application) DeleteUrlRenderCache(url string) error {
 	}
 	sqsClient := s3.NewFromConfig(cfg)
 
-	render, err := wrender.NewWrender(url)
+	render, err := wrender.NewWrender(url, wrender.CachedPagePrefix)
 	if err != nil {
 		return err
 	}
@@ -177,7 +171,7 @@ func (app *Application) DeleteUrlRenderCache(url string) error {
 		return err
 	}
 	// Remove the host prefix if no more objects are left
-	prefix := fmt.Sprintf("%s/", render.GetPrefixPath())
+	prefix := fmt.Sprintf("%s/", render.GetPrefixPath(wrender.CachedPagePrefix))
 	empty, err := checkBucketPrefixEmpty(sqsClient, prefix)
 	if err != nil {
 		return err
@@ -198,12 +192,12 @@ func (app *Application) DeleteDomainRenderCache(domain string) error {
 	}
 	sqsClient := s3.NewFromConfig(cfg)
 
-	render, err := wrender.NewWrender(domain)
+	render, err := wrender.NewWrender(domain, wrender.CachedPagePrefix)
 	if err != nil {
 		return err
 	}
 
-	prefix := fmt.Sprintf("%s/", render.GetPrefixPath())
+	prefix := fmt.Sprintf("%s/", render.GetPrefixPath(wrender.CachedPagePrefix))
 	if err := deletePrefixFromS3(sqsClient, prefix); err != nil {
 		return err
 	}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/liuminhaw/renderer"
+	"github.com/liuminhaw/wrenderer/cmd/worker/upAndRunWorker"
 	"github.com/liuminhaw/wrenderer/wrender"
 	"github.com/spf13/viper"
 )
@@ -20,10 +21,19 @@ type renderJob struct {
 	result chan renderJobResult
 }
 
+// TODO: move to UpAndRunWorker package
 func (app *application) startWorkers(workersCount int) {
+	// Render page worker
 	for i := 0; i < workersCount; i++ {
 		go app.renderPage(viper.GetViper(), i)
 	}
+
+	// Error listening worker
+	workerHandler := upAndRunWorker.Handler{
+		Logger:    app.logger,
+		ErrorChan: app.errorChan,
+	}
+	go workerHandler.ErrorListener()
 }
 
 func (app *application) renderPage(config *viper.Viper, id int) {

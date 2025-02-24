@@ -11,10 +11,12 @@ import (
 )
 
 type application struct {
-	logger      *slog.Logger
-	port        int
-	db          *bolt.DB
-	renderQueue chan renderJob
+	logger           *slog.Logger
+	port             int
+	db               *bolt.DB
+	renderQueue      chan renderJob
+	sitemapSemaphore chan struct{}
+	errorChan        chan error
 }
 
 // The serverError helper writes a log entry at Error level (including the request

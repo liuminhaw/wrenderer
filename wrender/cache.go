@@ -12,11 +12,6 @@ import (
 
 type CacheType int
 
-const (
-	BoltBucket CacheType = iota
-	BoltEntry
-)
-
 // BoltCached stores the cached content, creation time, and expiration time.
 // This is the information that will be stored in the cache file using JSON format.
 type BoltCached struct {
@@ -41,14 +36,19 @@ type BoltCaching struct {
 	RootBucket string
 	HostBucket string
 	CachedKey  string
-	Type       CacheType
 }
 
-// NewBoltCaching creates a Caching struct from the given path.
-// The path should have the format of "{RootBucket}/{HostBucket}/{CachedKey}".
-// Each part of the path is separated by a slash and will be assigned to the struct fields.
-func NewBoltCaching(db *bolt.DB, param string, cacheType CacheType) (BoltCaching, error) {
-	render, err := NewWrender(param)
+// NewBoltCaching creates a Caching struct from the given param (which can be parsed
+// into a URL struct). cachePrefix will be use to create the cache path with
+// format "{RootBucket}/{HostBucket}/{CachedKey}" -> {cachePrefix}/{host domain}/{hashed param key}.
+// The cacheType is for bolt type determination (Bucket or Entry)
+func NewBoltCaching(
+	db *bolt.DB,
+	param string,
+	cachedPrefix string,
+	bucketCache bool,
+) (BoltCaching, error) {
+	render, err := NewWrender(param, cachedPrefix)
 	if err != nil {
 		return BoltCaching{}, err
 	}
@@ -58,12 +58,16 @@ func NewBoltCaching(db *bolt.DB, param string, cacheType CacheType) (BoltCaching
 		return BoltCaching{}, fmt.Errorf("invalid input path: %s", render.CachePath)
 	}
 
+	cachedKey := parts[2]
+	if bucketCache {
+		cachedKey = ""
+	}
+
 	return BoltCaching{
 		DB:         db,
 		RootBucket: parts[0],
 		HostBucket: parts[1],
-		CachedKey:  parts[2],
-		Type:       cacheType,
+		CachedKey:  cachedKey,
 	}, nil
 }
 
@@ -145,13 +149,10 @@ func (c BoltCaching) Delete() error {
 			return fmt.Errorf("host bucket %s not found", c.HostBucket)
 		}
 
-		switch c.Type {
-		case BoltBucket:
+		if c.CachedKey == "" {
 			return c.cleanBucket(hostBucket, false)
-		case BoltEntry:
+		} else {
 			return c.cleanKey(hostBucket, []byte(c.CachedKey), false)
-		default:
-			return fmt.Errorf("invalid target type: %d", c.Type)
 		}
 	})
 }

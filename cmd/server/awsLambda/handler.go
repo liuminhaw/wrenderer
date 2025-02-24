@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/liuminhaw/wrenderer/cmd/server/shared"
 	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/internal/application/lambdaApp"
 )
@@ -185,10 +186,6 @@ func (h *handler) deleteCacheHandler(
 	}, nil
 }
 
-type renderSitemapPayload struct {
-	SitemapUrl string `json:"sitemapUrl"`
-}
-
 func (h *handler) renderSitemapHandler(
 	event events.APIGatewayProxyRequest,
 ) (events.APIGatewayProxyResponse, error) {
@@ -197,7 +194,7 @@ func (h *handler) renderSitemapHandler(
 		slog.String("api", "renderSitemap"),
 	)
 
-	var payload renderSitemapPayload
+	var payload shared.RenderSitemapPayload
 	if err := json.Unmarshal([]byte(event.Body), &payload); err != nil {
 		h.logger.Info(
 			"Failed to unmarshal request body",

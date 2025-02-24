@@ -14,6 +14,7 @@ import (
 
 const (
 	CachedPagePrefix = "page"
+	CachedJobPrefix  = "jobs"
 )
 
 type Wrender struct {
@@ -22,7 +23,10 @@ type Wrender struct {
 	CachePath string
 }
 
-func NewWrender(param string) (*Wrender, error) {
+// NewWrender creates a new Wrender struct from the given param, the param should 
+// be a valid URL string that can be parsed into a URL struct. The prefix is used
+// for generating the cache object path ({prefix}/{host[_port]}/{hashed key})
+func NewWrender(param, prefix string) (*Wrender, error) {
 	if !strings.Contains(param, "://") {
 		param = fmt.Sprintf("dummy://%s", param)
 	}
@@ -45,23 +49,30 @@ func NewWrender(param string) (*Wrender, error) {
 		Target: target,
 		UrlKey: key,
 	}
-	w.genObjectPath()
+	w.genObjectPath(prefix)
 
 	return &w, nil
 }
 
-func (w *Wrender) GetPrefixPath() string {
+// func (w *Wrender) GetPrefixPath() string {
+func (w *Wrender) GetPrefixPath(prefix string) string {
+    var path string
+
 	host := w.Target.Hostname()
 	port := w.Target.Port()
 	if port != "" {
-		path := strings.Join([]string{host, port}, "_")
-		return filepath.Join(CachedPagePrefix, path)
-	}
+        path = strings.Join([]string{host, port}, "_")
+	} else {
+        path = host
+    }
 
-	return filepath.Join(CachedPagePrefix, host)
+    if prefix == "" {
+        return path
+    }
+	return filepath.Join(prefix, host)
 }
 
-func (w *Wrender) genObjectPath() {
-	hostPath := w.GetPrefixPath()
+func (w *Wrender) genObjectPath(prefix string) {
+	hostPath := w.GetPrefixPath(prefix)
 	w.CachePath = filepath.Join(hostPath, w.UrlKey)
 }

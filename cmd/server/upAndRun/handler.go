@@ -3,13 +3,20 @@ package upAndRun
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/liuminhaw/wrenderer/cmd/server/shared"
+	"github.com/liuminhaw/wrenderer/cmd/worker/upAndRunWorker"
 	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/wrender"
 	"github.com/spf13/viper"
+)
+
+const (
+	statusKeyLength = 6
 )
 
 func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFunc {
@@ -26,7 +33,12 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			return
 		}
 
-		caching, err := wrender.NewBoltCaching(app.db, url, wrender.BoltEntry)
+		caching, err := wrender.NewBoltCaching(
+			app.db,
+			url,
+			wrender.CachedPagePrefix,
+			false,
+		)
 		if err != nil {
 			app.serverError(w, r, err)
 			return
@@ -125,7 +137,12 @@ func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	caching, err := wrender.NewBoltCaching(app.db, domain, wrender.BoltBucket)
+	caching, err := wrender.NewBoltCaching(
+		app.db,
+		domain,
+		wrender.CachedPagePrefix,
+		true,
+	)
 	if err != nil {
 		app.serverError(w, r, err)
 		return
@@ -175,20 +192,20 @@ func (app *application) deleteRenderedCache(w http.ResponseWriter, r *http.Reque
 
 	var caching wrender.BoltCaching
 	var param string
-	var cacheType wrender.CacheType
+	var targetBucket bool
 	switch {
 	case domainParam != "":
 		param = domainParam
-		cacheType = wrender.BoltBucket
+		targetBucket = true
 	case urlParam != "":
 		param = urlParam
-		cacheType = wrender.BoltEntry
+		targetBucket = false
 	default:
 		app.clientError(w, http.StatusBadRequest)
 		return
 	}
 
-	caching, err := wrender.NewBoltCaching(app.db, param, cacheType)
+	caching, err := wrender.NewBoltCaching(app.db, param, wrender.CachedPagePrefix, targetBucket)
 	if err != nil {
 		app.serverError(w, r, err)
 		return
@@ -197,4 +214,66 @@ func (app *application) deleteRenderedCache(w http.ResponseWriter, r *http.Reque
 		app.serverError(w, r, err)
 		return
 	}
+}
+
+type renderSitemapStatus struct {
+	Status    string    `json:"status"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+func (app *application) renderSitemap(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+	defer r.Body.Close()
+
+	var payload shared.RenderSitemapPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		app.logger.Info(
+			"Failed to unmarhsal request body",
+			slog.String("request body", string(body)),
+		)
+		app.clientError(w, http.StatusBadRequest)
+		return
+	}
+
+	if !internal.ValidUrl(payload.SitemapUrl) {
+		app.logger.Info("Invalid sitemap url", slog.String("sitemap url", payload.SitemapUrl))
+		app.clientError(w, http.StatusBadRequest)
+		return
+	}
+
+	var renderKey string
+	select {
+	case app.sitemapSemaphore <- struct{}{}:
+		var err error
+		renderKey, err = wrender.RandomKey(statusKeyLength, statusKeyLength)
+		if err != nil {
+			<-app.sitemapSemaphore // release semaphore slot
+			app.serverError(w, r, err)
+			return
+		}
+
+		workerHandler := upAndRunWorker.Handler{
+			Logger:    app.logger,
+			DB:        app.db,
+			Semaphore: app.sitemapSemaphore,
+			ErrorChan: app.errorChan,
+		}
+		go workerHandler.RenderSitemap(payload.SitemapUrl, renderKey)
+	default:
+		app.clientError(w, http.StatusTooManyRequests)
+		return
+	}
+
+	msg := fmt.Sprintf(
+		"{\"message\": \"Sitemap rendering accepted\", \"location\": \"/render/sitemap/%s/status\"}",
+		renderKey,
+	)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprintf("/render/sitemap/%s/status", renderKey))
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(msg))
 }

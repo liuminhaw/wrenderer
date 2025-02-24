@@ -55,10 +55,12 @@ func Start() error {
 
 	// Initialize a new instance of our application struct, containing the dependencies.
 	app := &application{
-		logger:      logger,
-		port:        viper.GetInt("app.port"),
-		db:          db,
-		renderQueue: make(chan renderJob, viper.GetInt("queue.capacity")),
+		logger:           logger,
+		port:             viper.GetInt("app.port"),
+		db:               db,
+		renderQueue:      make(chan renderJob, viper.GetInt("queue.capacity")),
+		sitemapSemaphore: make(chan struct{}, viper.GetInt("semaphore.capacity")),
+		errorChan:        make(chan error, viper.GetInt("semaphore.capacity")),
 	}
 
 	app.startWorkers(viper.GetInt("queue.workers"))

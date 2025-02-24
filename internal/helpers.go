@@ -5,7 +5,10 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"fmt"
+	"net/http"
 	"net/url"
+
+	"github.com/liuminhaw/sitemapHelper"
 )
 
 func Compress(data []byte) ([]byte, error) {
@@ -58,4 +61,18 @@ func ValidUrl(str string) bool {
 		return false
 	}
 	return true
+}
+
+func ParseSitemap(url string) ([]sitemapHelper.UrlEntry, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := sitemapHelper.ParseSitemap(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return entries, nil
 }
