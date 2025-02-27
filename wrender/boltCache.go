@@ -146,7 +146,9 @@ func (c BoltCaching) cleanBucket(bucket *bolt.Bucket, expired bool) error {
 				return err
 			}
 		} else {
-			c.cleanKey(bucket, k, expired)
+			if err := c.cleanKey(bucket, k, expired); err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -164,7 +166,7 @@ func (c BoltCaching) cleanKey(bucket *bolt.Bucket, key []byte, expired bool) err
 	}
 
 	if expired {
-		var cache Caches
+		var cache expiredCache
 		if err := json.Unmarshal(entry, &cache); err != nil {
 			return err
 		}

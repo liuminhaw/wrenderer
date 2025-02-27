@@ -89,15 +89,15 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			)
 
 			// Add render job to queue
-			var result renderJobResult
-			job := renderJob{url: url, result: make(chan renderJobResult, 1)}
+			var result upAndRunWorker.RenderJobResult
+			job := upAndRunWorker.RenderJob{Url: url, Result: make(chan upAndRunWorker.RenderJobResult, 1)}
 			select {
 			case app.renderQueue <- job:
 				// Wait for the job to be processed
 				app.logger.Info("Job added to queue", slog.String("url", url))
-				result = <-job.result
-				if result.err != nil {
-					app.serverError(w, r, result.err)
+				result = <-job.Result
+				if result.Err != nil {
+					app.serverError(w, r, result.Err)
 					return
 				}
 			default:
@@ -106,7 +106,7 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			}
 
 			// Save the rendered page to cache
-			compressedContent, err := internal.Compress(result.content)
+			compressedContent, err := internal.Compress(result.Content)
 			if err != nil {
 				app.serverError(w, r, err)
 				return
@@ -131,7 +131,7 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusOK)
-			w.Write(result.content)
+			w.Write(result.Content)
 		}
 	}
 }

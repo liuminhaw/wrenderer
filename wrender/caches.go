@@ -64,3 +64,12 @@ func PagesCachesConversion(cachesInfo []CacheContentInfo) ([]PageCachedInfo, err
 
 	return pCachesInfo, nil
 }
+
+type expiredCache struct {
+	Created time.Time `json:"created"`
+	Expires time.Time `json:"expires"`
+}
+
+func (c expiredCache) IsExpired() bool {
+	return time.Now().UTC().After(c.Expires)
+}

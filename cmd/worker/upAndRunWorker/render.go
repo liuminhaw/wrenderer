@@ -10,11 +10,22 @@ import (
 	"github.com/liuminhaw/wrenderer/wrender"
 )
 
+type RenderJobResult struct {
+	Content []byte
+	Err     error
+}
+
+type RenderJob struct {
+	Url    string
+	Result chan RenderJobResult
+}
+
 type Handler struct {
-	Logger    *slog.Logger
-	DB        *bolt.DB
-	Semaphore chan struct{}
-	ErrorChan chan error
+	Logger      *slog.Logger
+	DB          *bolt.DB
+	RenderQueue chan RenderJob
+	Semaphore   chan struct{}
+	ErrorChan   chan error
 }
 
 func (h *Handler) ErrorListener() {

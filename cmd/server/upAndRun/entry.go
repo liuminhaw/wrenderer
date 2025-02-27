@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/boltdb/bolt"
+	"github.com/liuminhaw/wrenderer/cmd/worker/upAndRunWorker"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
@@ -53,18 +54,29 @@ func Start() error {
 	}
 	defer db.Close()
 
+	renderQueue := make(chan upAndRunWorker.RenderJob, viper.GetInt("queue.capacity"))
+	semaphoreChan := make(chan struct{}, viper.GetInt("semaphore.capacity"))
+	errChan := make(chan error, viper.GetInt("semaphore.capacity"))
+
 	// Initialize a new instance of our application struct, containing the dependencies.
 	app := &application{
 		logger:           logger,
 		port:             viper.GetInt("app.port"),
 		db:               db,
-		renderQueue:      make(chan renderJob, viper.GetInt("queue.capacity")),
-		sitemapSemaphore: make(chan struct{}, viper.GetInt("semaphore.capacity")),
-		errorChan:        make(chan error, viper.GetInt("semaphore.capacity")),
+		renderQueue:      renderQueue,
+		sitemapSemaphore: semaphoreChan,
+		errorChan:        errChan,
 	}
 
-	app.startWorkers(viper.GetInt("queue.workers"))
-	go app.startCacheCleaner(viper.GetInt("cache.cleanupIntervalInMinutes"))
+	workerHandler := upAndRunWorker.Handler{
+		Logger:      app.logger,
+		DB:          db,
+		RenderQueue: renderQueue,
+		Semaphore:   semaphoreChan,
+		ErrorChan:   errChan,
+	}
+	workerHandler.StartWorkers(viper.GetInt("queue.workers"))
+	go workerHandler.StartCacheCleaner(viper.GetInt("cache.cleanupIntervalInMinutes"))
 
 	logger.Info("starting server", slog.Int("port", app.port))
 	err = http.ListenAndServe(fmt.Sprintf(":%d", app.port), app.routes())

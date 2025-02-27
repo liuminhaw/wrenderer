@@ -6,15 +6,14 @@ import (
 	"runtime/debug"
 
 	"github.com/boltdb/bolt"
-	"github.com/liuminhaw/renderer"
-	"github.com/spf13/viper"
+	"github.com/liuminhaw/wrenderer/cmd/worker/upAndRunWorker"
 )
 
 type application struct {
 	logger           *slog.Logger
 	port             int
 	db               *bolt.DB
-	renderQueue      chan renderJob
+	renderQueue      chan upAndRunWorker.RenderJob
 	sitemapSemaphore chan struct{}
 	errorChan        chan error
 }
@@ -38,26 +37,4 @@ func (app *application) serverError(w http.ResponseWriter, r *http.Request, err 
 // to the user.
 func (app *application) clientError(w http.ResponseWriter, status int) {
 	http.Error(w, http.StatusText(status), status)
-}
-
-func rendererOption(config *viper.Viper) *renderer.RendererOption {
-	config.SetDefault("renderer.windowWidth", 1920)
-	config.SetDefault("renderer.windowHeight", 1080)
-	config.SetDefault("renderer.container", false)
-	config.SetDefault("renderer.headless", true)
-	config.SetDefault("renderer.userAgent", "")
-	config.SetDefault("renderer.timeout", 30)
-
-	return &renderer.RendererOption{
-		BrowserOpts: renderer.BrowserConf{
-			IdleType:      "networkIdle",
-			Container:     config.GetBool("renderer.container"),
-			ChromiumDebug: config.GetBool("chromiumDebug"),
-		},
-		Headless:     config.GetBool("renderer.headless"),
-		WindowWidth:  config.GetInt("renderer.windowWidth"),
-		WindowHeight: config.GetInt("renderer.windowHeight"),
-		Timeout:      config.GetInt("renderer.timeout"),
-		UserAgent:    config.GetString("renderer.userAgent"),
-	}
 }
