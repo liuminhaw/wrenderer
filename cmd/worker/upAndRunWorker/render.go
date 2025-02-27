@@ -3,6 +3,7 @@ package upAndRunWorker
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/liuminhaw/wrenderer/internal"
@@ -17,18 +18,24 @@ type Handler struct {
 }
 
 func (h *Handler) ErrorListener() {
-    h.Logger.Debug("Error Listener started")
+	h.Logger.Debug("Error Listener started")
 	for err := range h.ErrorChan {
 		h.Logger.Error(err.Error())
 	}
 }
 
-func (h *Handler) RenderSitemap(url, jobKey string) {
-	defer func() { <-h.Semaphore }()
+type renderSitemapStatus struct {
+	Status  string    `json:"status"`
+	Created time.Time `json:"created"`
+	Expires time.Time `json:"expires"`
+}
+
+func (h *Handler) RenderSitemap(url, jobKey string, ttl time.Duration) {
+	defer func() { <-h.Semaphore }() // release semaphore slot
 
 	entries, err := internal.ParseSitemap(url)
 	if err != nil {
-        h.Logger.Info("Error parsing sitemap", slog.String("url", url))
+		h.Logger.Info("Error parsing sitemap", slog.String("url", url))
 		err := HandlerError{source: "worker renderSitemap", err: err}
 		h.ErrorChan <- &err
 		return
@@ -51,6 +58,17 @@ func (h *Handler) RenderSitemap(url, jobKey string) {
 		slog.String("HostBucket", jobCache.HostBucket),
 		slog.String("CachedKey", jobCache.CachedKey),
 	)
+
+	// data, err := json.Marshal(renderSitemapStatus{
+	// 	Status:  internal.JobStatusProcessing,
+	// 	Created: time.Now().UTC(),
+	// 	Expires: time.Now().Add(ttl).UTC(),
+	// })
+	//    if err != nil {
+	//        err := HandlerError{source: "worker renderSitemap", err: err}
+	//        h.ErrorChan <- &err
+	//        return
+	//    }
 
 	for _, entry := range entries {
 		h.Logger.Info(fmt.Sprintf("Entry: %s", entry.Loc))

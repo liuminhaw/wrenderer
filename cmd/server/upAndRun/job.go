@@ -24,7 +24,7 @@ type renderJob struct {
 // TODO: move to UpAndRunWorker package
 func (app *application) startWorkers(workersCount int) {
 	// Render page worker
-	for i := 0; i < workersCount; i++ {
+	for i := range workersCount {
 		go app.renderPage(viper.GetViper(), i)
 	}
 

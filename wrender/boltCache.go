@@ -5,30 +5,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/boltdb/bolt"
 )
 
-type CacheType int
-
-// BoltCached stores the cached content, creation time, and expiration time.
-// This is the information that will be stored in the cache file using JSON format.
-type BoltCached struct {
-	Url     string    `json:"url"`
-	Content []byte    `json:"content"`
-	Created time.Time `json:"created"`
-	Expires time.Time `json:"expires"`
-}
-
-func NewBoltCached(url string, content []byte, ttl time.Duration) BoltCached {
-	return BoltCached{
-		Url:     url,
-		Content: content,
-		Created: time.Now().UTC(),
-		Expires: time.Now().Add(ttl).UTC(),
-	}
-}
+type (
+	CacheType int
+)
 
 // BoltCaching is a struct that holds the path to the cached file.
 type BoltCaching struct {
@@ -71,7 +54,7 @@ func NewBoltCaching(
 	}, nil
 }
 
-func (c BoltCaching) Update(cached BoltCached) error {
+func (c BoltCaching) Update(data CacheContent) error {
 	return c.DB.Update(func(tx *bolt.Tx) error {
 		rootBucket, err := tx.CreateBucketIfNotExists([]byte(c.RootBucket))
 		if err != nil {
@@ -83,18 +66,16 @@ func (c BoltCaching) Update(cached BoltCached) error {
 			return err
 		}
 
-		data, err := json.Marshal(cached)
-		if err != nil {
-			return err
-		}
-
-		return hostBucket.Put([]byte(c.CachedKey), data)
+		return hostBucket.Put(CacheContent(c.CachedKey), data)
 	})
 }
 
-func (c BoltCaching) Read() (BoltCached, error) {
-	var cached BoltCached
-
+// func (c BoltCaching) Read() (BoltCached, error) {
+// Read method reads the cached content from the bolt database cache file under
+// path {RootBucket}/{HostBucket}/{CachedKey}. It will return the cached content
+// if the cache key exists. Otherwise it will return an CacheNotFoundError.
+func (c BoltCaching) Read() (CacheContent, error) {
+	var data []byte
 	err := c.DB.View(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket([]byte(c.RootBucket))
 		if rootBucket == nil {
@@ -106,19 +87,18 @@ func (c BoltCaching) Read() (BoltCached, error) {
 			return fmt.Errorf("host bucket %s not found", c.HostBucket)
 		}
 
-		val := hostBucket.Get([]byte(c.CachedKey))
-		if val == nil {
+		data = hostBucket.Get([]byte(c.CachedKey))
+		if data == nil {
 			return fmt.Errorf("cached key %s not found", c.CachedKey)
 		}
-		json.Unmarshal(val, &cached)
 
 		return nil
 	})
 	if err != nil {
-		return BoltCached{}, fmt.Errorf("caching read: %w", err)
+		return nil, &CacheNotFoundError{err}
 	}
 
-	return cached, nil
+	return CacheContent(data), nil
 }
 
 // Cleanup removes all expired cache entries.
@@ -184,11 +164,11 @@ func (c BoltCaching) cleanKey(bucket *bolt.Bucket, key []byte, expired bool) err
 	}
 
 	if expired {
-		var cache BoltCached
+		var cache Caches
 		if err := json.Unmarshal(entry, &cache); err != nil {
 			return err
 		}
-		if time.Now().After(cache.Expires) {
+		if cache.IsExpired() {
 			if err := bucket.Delete(key); err != nil {
 				return err
 			}
@@ -202,15 +182,8 @@ func (c BoltCaching) cleanKey(bucket *bolt.Bucket, key []byte, expired bool) err
 	return nil
 }
 
-type BoltCachedInfo struct {
-	Path    string    `json:"path"`
-	Url     string    `json:"url"`
-	Created time.Time `json:"created"`
-	Expires time.Time `json:"expires"`
-}
-
-func (c BoltCaching) List() ([]BoltCachedInfo, error) {
-	var caches []BoltCachedInfo
+func (c BoltCaching) List() ([]CacheContentInfo, error) {
+	var contents []CacheContentInfo
 
 	err := c.DB.View(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket([]byte(c.RootBucket))
@@ -224,16 +197,13 @@ func (c BoltCaching) List() ([]BoltCachedInfo, error) {
 		}
 
 		return hostBucket.ForEach(func(k, v []byte) error {
-			var cached BoltCached
-			if err := json.Unmarshal(v, &cached); err != nil {
-				return err
-			}
-			caches = append(caches, BoltCachedInfo{
-				Path:    filepath.Join(c.RootBucket, c.HostBucket, string(k)),
-				Url:     cached.Url,
-				Created: cached.Created,
-				Expires: cached.Expires,
-			})
+			contents = append(
+				contents,
+				CacheContentInfo{
+					Content: CacheContent(v),
+					Path:    filepath.Join(c.RootBucket, c.HostBucket, string(k)),
+				},
+			)
 			return nil
 		})
 	})
@@ -241,84 +211,5 @@ func (c BoltCaching) List() ([]BoltCachedInfo, error) {
 		return nil, err
 	}
 
-	return caches, nil
-}
-
-// IsValid checks if the cache key exists and if the cached is regarded as expired.
-// Returns true if the cache key exists and the cache is not expired.
-// Returns false otherwise.
-func (c BoltCaching) IsValid() (bool, error) {
-	exists, err := c.exists()
-	if err != nil {
-		return false, fmt.Errorf("caching validity check: %w", err)
-	}
-	if !exists {
-		return false, nil
-	}
-
-	expired, err := c.expired()
-	if err != nil {
-		return false, fmt.Errorf("caching validity check: %w", err)
-	}
-	return !expired, nil
-}
-
-// exists checks the existence of the cache key.
-func (c BoltCaching) exists() (bool, error) {
-	var exists bool
-	err := c.DB.View(func(tx *bolt.Tx) error {
-		rootBucket := tx.Bucket([]byte(c.RootBucket))
-		if rootBucket == nil {
-			return nil
-		}
-
-		bucket := rootBucket.Bucket([]byte(c.HostBucket))
-		if bucket == nil {
-			return nil
-		}
-
-		data := bucket.Get([]byte(c.CachedKey))
-		exists = data != nil
-		return nil
-	})
-	if err != nil {
-		return exists, fmt.Errorf("caching existence check: %w", err)
-	}
-	return exists, nil
-}
-
-// expired checks if the cached content is expired
-// by comparing the current time with the expiration time.
-func (c BoltCaching) expired() (bool, error) {
-	var expired bool
-
-	err := c.DB.View(func(tx *bolt.Tx) error {
-		rootBucket := tx.Bucket([]byte(c.RootBucket))
-		if rootBucket == nil {
-			return nil
-		}
-
-		bucket := rootBucket.Bucket([]byte(c.HostBucket))
-		if bucket == nil {
-			return nil
-		}
-
-		data := bucket.Get([]byte(c.CachedKey))
-		if data == nil {
-			return nil
-		}
-
-		var info BoltCached
-		if err := json.Unmarshal(data, &info); err != nil {
-			return err
-		}
-
-		expired = time.Now().After(info.Expires)
-		return nil
-	})
-	if err != nil {
-		return expired, fmt.Errorf("caching expiration check: %w", err)
-	}
-
-	return expired, err
+	return contents, nil
 }

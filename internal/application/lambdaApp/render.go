@@ -32,13 +32,6 @@ const (
 	PlainContentType = "text/plain"
 
 	timestampFile = "timestamp"
-
-	jobStatusUnknown    = "unknown"
-	jobStatusQueued     = "queued"
-	jobStatusFailed     = "failed"
-	jobStatusProcessing = "processing"
-	jobStatusCompleted  = "completed"
-	jobStatusTimeout    = "timeout"
 )
 
 // RenderUrl will check if the given url is already rendered and cached in S3 bucket.
@@ -253,13 +246,13 @@ func (app *Application) CheckRenderStatus(key string) (RenderStatusResp, error) 
 		return RenderStatusResp{}, err
 	}
 	if now.Sub(parsedTime) > time.Duration(expirationInHours)*time.Hour {
-		return RenderStatusResp{Status: jobStatusTimeout}, nil
+		return RenderStatusResp{Status: internal.JobStatusTimeout}, nil
 	}
 
 	if !queueEmpty || !processEmpty {
-		return RenderStatusResp{Status: jobStatusProcessing}, nil
+		return RenderStatusResp{Status: internal.JobStatusProcessing}, nil
 	} else if !failureEmpty {
-		failureResp := RenderStatusResp{Status: jobStatusFailed, Details: []string{}}
+		failureResp := RenderStatusResp{Status: internal.JobStatusFailed, Details: []string{}}
 		failureKeys, err := ListObjectsFromS3(client, jobCache.FailurePath())
 		if err != nil {
 			return RenderStatusResp{}, err
@@ -281,7 +274,7 @@ func (app *Application) CheckRenderStatus(key string) (RenderStatusResp, error) 
 		return failureResp, nil
 	}
 
-	return RenderStatusResp{Status: jobStatusCompleted}, nil
+	return RenderStatusResp{Status: internal.JobStatusCompleted}, nil
 }
 
 func (app *Application) renderPage(urlParam string) ([]byte, error) {

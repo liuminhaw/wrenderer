@@ -22,6 +22,6 @@ workers = 1
 
 [semaphore]
 capacity = 5
-
+jobTimeoutInMinutes = 60
 
 

@@ -64,7 +64,7 @@ func randomString(n int) (string, error) {
 		return "", err
 	}
 	// Map each random byte to a character in the allowed letters.
-	for i := 0; i < n; i++ {
+	for i := range n {
 		b[i] = letters[int(b[i])%len(letters)]
 	}
 	return string(b), nil

@@ -2,6 +2,7 @@ package upAndRun
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -45,24 +46,33 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 		}
 
 		app.logger.Debug("Checking cache", slog.String("url", url))
-		exists, err := caching.IsValid()
-		if err != nil {
-			app.serverError(w, r, err)
-			return
+		var exists, expired bool
+		var cached wrender.PageCached
+		cachedData, err := caching.Read()
+		if err != nil { // cache not exists
+			var werr *wrender.CacheNotFoundError
+			if !errors.As(err, &werr) {
+				app.serverError(w, r, err)
+				return
+			}
+		} else { // cache exists
+			exists = true
+			if err := json.Unmarshal([]byte(cachedData), &cached); err != nil {
+				app.serverError(w, r, err)
+				return
+			}
+			expired = cached.IsExpired()
 		}
 		app.logger.Debug("Checking cache done", slog.String("url", url))
-		if exists {
+
+		if exists && !expired {
 			app.logger.Debug(
-				"Cache exists",
+				"Cache exists and not expired",
 				slog.String("RootBucket", caching.RootBucket),
 				slog.String("HostBucket", caching.HostBucket),
 				slog.String("CachedKey", caching.CachedKey),
 			)
-			cached, err := caching.Read()
-			if err != nil {
-				app.serverError(w, r, err)
-				return
-			}
+
 			decompressContent, err := internal.Decompress(cached.Content)
 			if err != nil {
 				app.serverError(w, r, err)
@@ -72,7 +82,7 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			return
 		} else {
 			app.logger.Debug(
-				"Cache not exists",
+				"Cache expired or not exists",
 				slog.String("RootBucket", caching.RootBucket),
 				slog.String("HostBucket", caching.HostBucket),
 				slog.String("CachedKey", caching.CachedKey),
@@ -102,13 +112,19 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 				return
 			}
 			cacheDuration := config.GetInt("cache.durationInMinutes")
-			cacheItem := wrender.NewBoltCached(
+			cacheItem := wrender.NewPageCached(
 				url,
 				compressedContent,
 				time.Duration(cacheDuration)*time.Minute,
 			)
+			var cacheData []byte
+			cacheData, err = json.Marshal(cacheItem)
+			if err != nil {
+				app.serverError(w, r, err)
+				return
+			}
 
-			if err := caching.Update(cacheItem); err != nil {
+			if err := caching.Update(cacheData); err != nil {
 				app.serverError(w, r, err)
 				return
 			}
@@ -121,7 +137,7 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 }
 
 type renderedCachesResponse struct {
-	Caches []wrender.BoltCachedInfo `json:"caches"`
+	Caches []wrender.PageCachedInfo `json:"caches"`
 }
 
 func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Request) {
@@ -148,17 +164,18 @@ func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	caches, err := caching.List()
+	cachesInfo, err := caching.List()
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+	pageCaches, err := wrender.PagesCachesConversion(cachesInfo)
 	if err != nil {
 		app.serverError(w, r, err)
 		return
 	}
 
-	cachesResponse := renderedCachesResponse{}
-	for _, cache := range caches {
-		cachesResponse.Caches = append(cachesResponse.Caches, cache)
-	}
-
+	cachesResponse := renderedCachesResponse{Caches: pageCaches}
 	response, err := json.Marshal(cachesResponse)
 	if err != nil {
 		app.serverError(w, r, err)
@@ -221,59 +238,65 @@ type renderSitemapStatus struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-func (app *application) renderSitemap(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		app.serverError(w, r, err)
-		return
-	}
-	defer r.Body.Close()
-
-	var payload shared.RenderSitemapPayload
-	if err := json.Unmarshal(body, &payload); err != nil {
-		app.logger.Info(
-			"Failed to unmarhsal request body",
-			slog.String("request body", string(body)),
-		)
-		app.clientError(w, http.StatusBadRequest)
-		return
-	}
-
-	if !internal.ValidUrl(payload.SitemapUrl) {
-		app.logger.Info("Invalid sitemap url", slog.String("sitemap url", payload.SitemapUrl))
-		app.clientError(w, http.StatusBadRequest)
-		return
-	}
-
-	var renderKey string
-	select {
-	case app.sitemapSemaphore <- struct{}{}:
-		var err error
-		renderKey, err = wrender.RandomKey(statusKeyLength, statusKeyLength)
+func (app *application) renderSitemapWithConfig(config *viper.Viper) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			<-app.sitemapSemaphore // release semaphore slot
 			app.serverError(w, r, err)
 			return
 		}
+		defer r.Body.Close()
 
-		workerHandler := upAndRunWorker.Handler{
-			Logger:    app.logger,
-			DB:        app.db,
-			Semaphore: app.sitemapSemaphore,
-			ErrorChan: app.errorChan,
+		var payload shared.RenderSitemapPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			app.logger.Info(
+				"Failed to unmarhsal request body",
+				slog.String("request body", string(body)),
+			)
+			app.clientError(w, http.StatusBadRequest)
+			return
 		}
-		go workerHandler.RenderSitemap(payload.SitemapUrl, renderKey)
-	default:
-		app.clientError(w, http.StatusTooManyRequests)
-		return
-	}
 
-	msg := fmt.Sprintf(
-		"{\"message\": \"Sitemap rendering accepted\", \"location\": \"/render/sitemap/%s/status\"}",
-		renderKey,
-	)
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Location", fmt.Sprintf("/render/sitemap/%s/status", renderKey))
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(msg))
+		if !internal.ValidUrl(payload.SitemapUrl) {
+			app.logger.Info("Invalid sitemap url", slog.String("sitemap url", payload.SitemapUrl))
+			app.clientError(w, http.StatusBadRequest)
+			return
+		}
+
+		var renderKey string
+		select {
+		case app.sitemapSemaphore <- struct{}{}:
+			var err error
+			renderKey, err = wrender.RandomKey(statusKeyLength, statusKeyLength)
+			if err != nil {
+				<-app.sitemapSemaphore // release semaphore slot
+				app.serverError(w, r, err)
+				return
+			}
+
+			workerHandler := upAndRunWorker.Handler{
+				Logger:    app.logger,
+				DB:        app.db,
+				Semaphore: app.sitemapSemaphore,
+				ErrorChan: app.errorChan,
+			}
+			go workerHandler.RenderSitemap(
+				payload.SitemapUrl,
+				renderKey,
+				config.GetDuration("semaphore.jobTimeoutInMinutes")*time.Minute,
+			)
+		default:
+			app.clientError(w, http.StatusTooManyRequests)
+			return
+		}
+
+		msg := fmt.Sprintf(
+			"{\"message\": \"Sitemap rendering accepted\", \"location\": \"/render/sitemap/%s/status\"}",
+			renderKey,
+		)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Location", fmt.Sprintf("/render/sitemap/%s/status", renderKey))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(msg))
+	}
 }

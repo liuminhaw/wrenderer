@@ -13,7 +13,7 @@ func (app *application) routes() *http.ServeMux {
 	mux.HandleFunc("GET /renders", app.listRenderedCaches)
 	mux.HandleFunc("GET /render", app.pageRenderWithConfig(viper.GetViper()))
 	mux.HandleFunc("DELETE /render", app.deleteRenderedCache)
-	mux.HandleFunc("PUT /render/sitemap", app.renderSitemap)
+	mux.HandleFunc("PUT /render/sitemap", app.renderSitemapWithConfig(viper.GetViper()))
 
 	return mux
 }
