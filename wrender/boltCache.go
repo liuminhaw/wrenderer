@@ -54,6 +54,7 @@ func NewBoltCaching(
 	}, nil
 }
 
+// Update method updates / creates the cache with the given data.
 func (c BoltCaching) Update(data CacheContent) error {
 	return c.DB.Update(func(tx *bolt.Tx) error {
 		rootBucket, err := tx.CreateBucketIfNotExists([]byte(c.RootBucket))
@@ -70,7 +71,6 @@ func (c BoltCaching) Update(data CacheContent) error {
 	})
 }
 
-// func (c BoltCaching) Read() (BoltCached, error) {
 // Read method reads the cached content from the bolt database cache file under
 // path {RootBucket}/{HostBucket}/{CachedKey}. It will return the cached content
 // if the cache key exists. Otherwise it will return an CacheNotFoundError.

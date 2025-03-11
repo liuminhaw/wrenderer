@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/liuminhaw/wrenderer/cmd/server/shared"
+	"github.com/liuminhaw/wrenderer/cmd/shared"
 	"github.com/liuminhaw/wrenderer/cmd/worker/upAndRunWorker"
 	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/wrender"
@@ -106,25 +106,8 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			}
 
 			// Save the rendered page to cache
-			compressedContent, err := internal.Compress(result.Content)
-			if err != nil {
-				app.serverError(w, r, err)
-				return
-			}
-			cacheDuration := config.GetInt("cache.durationInMinutes")
-			cacheItem := wrender.NewPageCached(
-				url,
-				compressedContent,
-				time.Duration(cacheDuration)*time.Minute,
-			)
-			var cacheData []byte
-			cacheData, err = json.Marshal(cacheItem)
-			if err != nil {
-				app.serverError(w, r, err)
-				return
-			}
-
-			if err := caching.Update(cacheData); err != nil {
+			pageCache := wrender.NewPageCached(url, nil, config.GetDuration("cache.durationInMinutes")*time.Minute)
+			if err := pageCache.Update(caching, result.Content, false); err != nil {
 				app.serverError(w, r, err)
 				return
 			}
@@ -233,11 +216,6 @@ func (app *application) deleteRenderedCache(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-type renderSitemapStatus struct {
-	Status    string    `json:"status"`
-	Timestamp time.Time `json:"timestamp"`
-}
-
 func (app *application) renderSitemapWithConfig(config *viper.Viper) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -281,9 +259,9 @@ func (app *application) renderSitemapWithConfig(config *viper.Viper) http.Handle
 				ErrorChan: app.errorChan,
 			}
 			go workerHandler.RenderSitemap(
+				config,
 				payload.SitemapUrl,
 				renderKey,
-				config.GetDuration("semaphore.jobTimeoutInMinutes")*time.Minute,
 			)
 		default:
 			app.clientError(w, http.StatusTooManyRequests)

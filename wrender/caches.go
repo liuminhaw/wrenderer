@@ -3,6 +3,8 @@ package wrender
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/liuminhaw/wrenderer/internal"
 )
 
 type CacheContent []byte
@@ -26,17 +28,41 @@ type PageCached struct {
 }
 
 func NewPageCached(url string, content []byte, ttl time.Duration) PageCached {
-	return PageCached{
+	cache := PageCached{
 		Url:     url,
-		Content: content,
 		Created: time.Now().UTC(),
 		Expires: time.Now().Add(ttl).UTC(),
 	}
+
+	if content != nil {
+		cache.Content = content
+	}
+
+	return cache
 }
 
 // IsExpired checks if the cache has expired.
-func (p *PageCached) IsExpired() bool {
+func (p PageCached) IsExpired() bool {
 	return time.Now().UTC().After(p.Expires)
+}
+
+func (p *PageCached) Update(caching Caching, content []byte, compressed bool) error {
+	if compressed {
+		p.Content = content
+	} else {
+		content, err := internal.Compress(content)
+		if err != nil {
+			return err
+		}
+		p.Content = content
+	}
+
+	data, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+
+	return caching.Update(CacheContent(data))
 }
 
 type PageCachedInfo struct {
@@ -63,6 +89,35 @@ func PagesCachesConversion(cachesInfo []CacheContentInfo) ([]PageCachedInfo, err
 	}
 
 	return pCachesInfo, nil
+}
+
+type SitemapJobCache struct {
+	Status  string    `json:"status"`
+	Created time.Time `json:"created"`
+	Expires time.Time `json:"expires"`
+}
+
+func NewSitemapJobCache(status string, ttl time.Duration) SitemapJobCache {
+	return SitemapJobCache{
+		Status:  status,
+		Created: time.Now().UTC(),
+		Expires: time.Now().Add(ttl).UTC(),
+	}
+}
+
+func (c SitemapJobCache) IsExpired() bool {
+	return time.Now().UTC().After(c.Expires)
+}
+
+func (c *SitemapJobCache) Update(caching Caching, status string) error {
+	c.Status = status
+
+	data, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+
+	return caching.Update(CacheContent(data))
 }
 
 type expiredCache struct {

@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/internal/application/lambdaApp"
 	"github.com/liuminhaw/wrenderer/wrender"
 )
@@ -73,7 +74,7 @@ func (h *handler) sitemapHandler(event events.SQSEvent) error {
 		jobCache := wrender.NewSqsJobCache(
 			message.MessageId,
 			payload.CacheKey,
-			lambdaApp.SitemapCategory,
+			internal.SitemapCategory,
 		)
 
 		// move job cache from queued to process

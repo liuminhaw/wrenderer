@@ -9,7 +9,7 @@ import (
 	"regexp"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/liuminhaw/wrenderer/cmd/server/shared"
+	"github.com/liuminhaw/wrenderer/cmd/shared"
 	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/internal/application/lambdaApp"
 )

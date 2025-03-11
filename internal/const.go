@@ -7,4 +7,6 @@ const (
 	JobStatusProcessing = "processing"
 	JobStatusCompleted  = "completed"
 	JobStatusTimeout    = "timeout"
+
+	SitemapCategory = "sitemap"
 )

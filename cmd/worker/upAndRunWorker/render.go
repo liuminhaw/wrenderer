@@ -6,8 +6,10 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/liuminhaw/renderer"
 	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/wrender"
+	"github.com/spf13/viper"
 )
 
 type RenderJobResult struct {
@@ -35,13 +37,7 @@ func (h *Handler) ErrorListener() {
 	}
 }
 
-type renderSitemapStatus struct {
-	Status  string    `json:"status"`
-	Created time.Time `json:"created"`
-	Expires time.Time `json:"expires"`
-}
-
-func (h *Handler) RenderSitemap(url, jobKey string, ttl time.Duration) {
+func (h *Handler) RenderSitemap(config *viper.Viper, url, jobKey string) {
 	defer func() { <-h.Semaphore }() // release semaphore slot
 
 	entries, err := internal.ParseSitemap(url)
@@ -52,36 +48,93 @@ func (h *Handler) RenderSitemap(url, jobKey string, ttl time.Duration) {
 		return
 	}
 
-	param := fmt.Sprintf("%s/%s", url, jobKey)
-	jobCache, err := wrender.NewBoltCaching(h.DB, param, wrender.CachedJobPrefix, false)
+	param := fmt.Sprintf("%s/%s", internal.SitemapCategory, jobKey)
+	h.Logger.Debug(fmt.Sprintf("Sitemap Job Caching param: %s", param))
+	jobCaching, err := wrender.NewBoltCaching(h.DB, param, wrender.CachedJobPrefix, false)
 	if err != nil {
 		err := HandlerError{source: "worker renderSitemap", err: err}
 		h.ErrorChan <- &err
 		return
 	}
 
-	// RootBucket string
-	// HostBucket string
-	// CachedKey  string
 	h.Logger.Info(
 		"Sitemap Job Cache",
-		slog.String("RootBucket", jobCache.RootBucket),
-		slog.String("HostBucket", jobCache.HostBucket),
-		slog.String("CachedKey", jobCache.CachedKey),
+		slog.String("RootBucket", jobCaching.RootBucket),
+		slog.String("HostBucket", jobCaching.HostBucket),
+		slog.String("CachedKey", jobCaching.CachedKey),
 	)
 
-	// data, err := json.Marshal(renderSitemapStatus{
-	// 	Status:  internal.JobStatusProcessing,
-	// 	Created: time.Now().UTC(),
-	// 	Expires: time.Now().Add(ttl).UTC(),
-	// })
-	//    if err != nil {
-	//        err := HandlerError{source: "worker renderSitemap", err: err}
-	//        h.ErrorChan <- &err
-	//        return
-	//    }
-
-	for _, entry := range entries {
-		h.Logger.Info(fmt.Sprintf("Entry: %s", entry.Loc))
+	ttl := config.GetDuration("semaphore.jobTimeoutInMinutes") * time.Minute
+	jobCache := wrender.NewSitemapJobCache(internal.JobStatusProcessing, ttl)
+	if err := jobCache.Update(jobCaching, internal.JobStatusProcessing); err != nil {
+		err := HandlerError{source: "renderSitemap worker", err: err}
+		h.ErrorChan <- &err
+		return
 	}
+
+	h.Logger.Debug(
+		"Sitemap Job Cache updated",
+		slog.String(
+			"path",
+			fmt.Sprintf(
+				"%s/%s/%s",
+				jobCaching.RootBucket,
+				jobCaching.HostBucket,
+				jobCaching.CachedKey,
+			),
+		),
+		slog.String("status", internal.JobStatusProcessing),
+	)
+
+	// Render each url from the sitemap
+	render := renderer.NewRenderer(renderer.WithLogger(h.Logger))
+	for _, entry := range entries {
+		h.Logger.Debug(fmt.Sprintf("Sitemap rendering: %s start", entry.Loc))
+
+		caching, err := wrender.NewBoltCaching(h.DB, entry.Loc, wrender.CachedPagePrefix, false)
+		if err != nil {
+			err := HandlerError{source: "renderSitemap worker", err: err}
+			h.ErrorChan <- &err
+			continue
+		}
+
+		content, err := render.RenderPage(entry.Loc, rendererOption(config))
+		if err != nil {
+			err := HandlerError{source: "renderSitemap worker", err: err}
+			h.ErrorChan <- &err
+			continue
+		}
+
+		pageCache := wrender.NewPageCached(
+			entry.Loc,
+			nil,
+			config.GetDuration("cache.durationInMinutes")*time.Minute,
+		)
+		if err := pageCache.Update(caching, content, false); err != nil {
+			err := HandlerError{source: "renderSitemap worker", err: err}
+			h.ErrorChan <- &err
+			continue
+		}
+		h.Logger.Debug(fmt.Sprintf("Sitemap rendering: %s done", entry.Loc))
+	}
+
+	if err := jobCache.Update(jobCaching, internal.JobStatusCompleted); err != nil {
+		err := HandlerError{source: "renderSitemap worker", err: err}
+		h.ErrorChan <- &err
+		return
+	}
+
+	h.Logger.Debug(
+		"Sitemap Job Cache updated",
+		slog.String(
+			"path",
+			fmt.Sprintf(
+				"%s/%s/%s",
+				jobCaching.RootBucket,
+				jobCaching.HostBucket,
+				jobCaching.CachedKey,
+			),
+		),
+		slog.String("status", internal.JobStatusCompleted),
+	)
 }

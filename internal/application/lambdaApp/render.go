@@ -26,8 +26,6 @@ type Application struct {
 const (
 	JobKeyLength = 6
 
-	SitemapCategory = "sitemap"
-
 	HtmlContentType  = "text/html"
 	PlainContentType = "text/plain"
 
@@ -110,7 +108,7 @@ func (app *Application) RenderSitemap(url string) (string, error) {
 	}
 
 	// Upload render timestamp to S3
-	jobCache := wrender.NewSqsJobCache("", renderKey, SitemapCategory)
+	jobCache := wrender.NewSqsJobCache("", renderKey, internal.SitemapCategory)
 	now := time.Now().UTC().Format(time.RFC3339)
 	if err := UploadToS3(
 		s3Client,
@@ -137,7 +135,6 @@ func (app *Application) RenderSitemap(url string) (string, error) {
 			slog.String("payload", string(payload)),
 		)
 
-		// jobCache := wrender.NewSqsJobCache(messageId, renderKey, SitemapCategory)
 		jobCache.MessageId = messageId
 		if err := UploadToS3(s3Client, jobCache.QueuedPath(), PlainContentType, bytes.NewReader(payload)); err != nil {
 			return "", err
@@ -222,7 +219,7 @@ func (app *Application) CheckRenderStatus(key string) (RenderStatusResp, error) 
 	}
 	client := s3.NewFromConfig(cfg)
 
-	jobCache := wrender.NewSqsJobCache("", key, SitemapCategory)
+	jobCache := wrender.NewSqsJobCache("", key, internal.SitemapCategory)
 	queueEmpty, err := checkBucketPrefixEmpty(client, jobCache.QueuedPath())
 	if err != nil {
 		return RenderStatusResp{}, err
