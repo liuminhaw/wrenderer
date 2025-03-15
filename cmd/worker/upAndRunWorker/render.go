@@ -93,6 +93,7 @@ func (h *Handler) RenderSitemap(config *viper.Viper, url, jobKey string) {
 
 		caching, err := wrender.NewBoltCaching(h.DB, entry.Loc, wrender.CachedPagePrefix, false)
 		if err != nil {
+			jobCache.Failed = append(jobCache.Failed, entry.Loc)
 			err := HandlerError{source: "renderSitemap worker", err: err}
 			h.ErrorChan <- &err
 			continue
@@ -100,6 +101,7 @@ func (h *Handler) RenderSitemap(config *viper.Viper, url, jobKey string) {
 
 		content, err := render.RenderPage(entry.Loc, rendererOption(config))
 		if err != nil {
+			jobCache.Failed = append(jobCache.Failed, entry.Loc)
 			err := HandlerError{source: "renderSitemap worker", err: err}
 			h.ErrorChan <- &err
 			continue
@@ -111,6 +113,7 @@ func (h *Handler) RenderSitemap(config *viper.Viper, url, jobKey string) {
 			config.GetDuration("cache.durationInMinutes")*time.Minute,
 		)
 		if err := pageCache.Update(caching, content, false); err != nil {
+			jobCache.Failed = append(jobCache.Failed, entry.Loc)
 			err := HandlerError{source: "renderSitemap worker", err: err}
 			h.ErrorChan <- &err
 			continue
@@ -118,7 +121,11 @@ func (h *Handler) RenderSitemap(config *viper.Viper, url, jobKey string) {
 		h.Logger.Debug(fmt.Sprintf("Sitemap rendering: %s done", entry.Loc))
 	}
 
-	if err := jobCache.Update(jobCaching, internal.JobStatusCompleted); err != nil {
+	jobStatus := internal.JobStatusCompleted
+	if len(jobCache.Failed) != 0 {
+		jobStatus = internal.JobStatusFailed
+	}
+	if err := jobCache.Update(jobCaching, jobStatus); err != nil {
 		err := HandlerError{source: "renderSitemap worker", err: err}
 		h.ErrorChan <- &err
 		return

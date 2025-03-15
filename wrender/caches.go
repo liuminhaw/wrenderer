@@ -95,6 +95,7 @@ type SitemapJobCache struct {
 	Status  string    `json:"status"`
 	Created time.Time `json:"created"`
 	Expires time.Time `json:"expires"`
+	Failed  []string  `json:"failed,omitempty"`
 }
 
 func NewSitemapJobCache(status string, ttl time.Duration) SitemapJobCache {
@@ -102,6 +103,7 @@ func NewSitemapJobCache(status string, ttl time.Duration) SitemapJobCache {
 		Status:  status,
 		Created: time.Now().UTC(),
 		Expires: time.Now().Add(ttl).UTC(),
+		Failed:  []string{},
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/liuminhaw/renderer"
+	"github.com/liuminhaw/wrenderer/cmd/shared"
 	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/wrender"
 )
@@ -195,12 +196,7 @@ func (app *Application) DeleteDomainRenderCache(domain string) error {
 	return nil
 }
 
-type RenderStatusResp struct {
-	Status  string   `json:"status"`
-	Details []string `json:"details,omitempty"`
-}
-
-func (app *Application) CheckRenderStatus(key string) (RenderStatusResp, error) {
+func (app *Application) CheckRenderStatus(key string) (shared.RenderStatusResp, error) {
 	var expirationInHours int
 	var err error
 	expirationConfig, exists := os.LookupEnv("JOB_EXPIRATION_IN_HOURS")
@@ -209,61 +205,61 @@ func (app *Application) CheckRenderStatus(key string) (RenderStatusResp, error) 
 	} else {
 		expirationInHours, err = strconv.Atoi(expirationConfig)
 		if err != nil {
-			return RenderStatusResp{}, err
+			return shared.RenderStatusResp{}, err
 		}
 	}
 
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
-		return RenderStatusResp{}, err
+		return shared.RenderStatusResp{}, err
 	}
 	client := s3.NewFromConfig(cfg)
 
 	jobCache := wrender.NewSqsJobCache("", key, internal.SitemapCategory)
 	queueEmpty, err := checkBucketPrefixEmpty(client, jobCache.QueuedPath())
 	if err != nil {
-		return RenderStatusResp{}, err
+		return shared.RenderStatusResp{}, err
 	}
 	processEmpty, err := checkBucketPrefixEmpty(client, jobCache.ProcessPath())
 	if err != nil {
 	}
 	failureEmpty, err := checkBucketPrefixEmpty(client, jobCache.FailurePath())
 	if err != nil {
-		return RenderStatusResp{}, err
+		return shared.RenderStatusResp{}, err
 	}
 
 	// Read job timestamp record
 	now := time.Now().UTC()
 	timestamp, err := readObjectFromS3(client, filepath.Join(jobCache.KeyPath(), timestampFile))
 	if err != nil {
-		return RenderStatusResp{}, err
+		return shared.RenderStatusResp{}, err
 	}
 	parsedTime, err := time.Parse(time.RFC3339, string(timestamp))
 	if err != nil {
-		return RenderStatusResp{}, err
+		return shared.RenderStatusResp{}, err
 	}
 	if now.Sub(parsedTime) > time.Duration(expirationInHours)*time.Hour {
-		return RenderStatusResp{Status: internal.JobStatusTimeout}, nil
+		return shared.RenderStatusResp{Status: internal.JobStatusTimeout}, nil
 	}
 
 	if !queueEmpty || !processEmpty {
-		return RenderStatusResp{Status: internal.JobStatusProcessing}, nil
+		return shared.RenderStatusResp{Status: internal.JobStatusProcessing}, nil
 	} else if !failureEmpty {
-		failureResp := RenderStatusResp{Status: internal.JobStatusFailed, Details: []string{}}
+		failureResp := shared.RenderStatusResp{Status: internal.JobStatusFailed, Details: []string{}}
 		failureKeys, err := ListObjectsFromS3(client, jobCache.FailurePath())
 		if err != nil {
-			return RenderStatusResp{}, err
+			return shared.RenderStatusResp{}, err
 		}
 		for _, key := range failureKeys {
 			app.Logger.Debug(fmt.Sprintf("Failure key: %s", key))
 			content, err := readObjectFromS3(client, key)
 			if err != nil {
-				return RenderStatusResp{}, err
+				return shared.RenderStatusResp{}, err
 			}
 
 			var queuePayload workerQueuePayload
 			if err := json.Unmarshal(content, &queuePayload); err != nil {
-				return RenderStatusResp{}, err
+				return shared.RenderStatusResp{}, err
 			}
 			failureResp.Details = append(failureResp.Details, queuePayload.TargetUrl)
 		}
@@ -271,7 +267,7 @@ func (app *Application) CheckRenderStatus(key string) (RenderStatusResp, error) 
 		return failureResp, nil
 	}
 
-	return RenderStatusResp{Status: internal.JobStatusCompleted}, nil
+	return shared.RenderStatusResp{Status: internal.JobStatusCompleted}, nil
 }
 
 func (app *Application) renderPage(urlParam string) ([]byte, error) {

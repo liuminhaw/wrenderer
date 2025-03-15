@@ -24,8 +24,6 @@ curl -X DELETE -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/rende
 
 ### Sitemap prerender
 
-> Note: Currently implement in aws lambda type only
-
 Read content from the given sitemap url and render each url to create cache beforehand
 
 ```bash

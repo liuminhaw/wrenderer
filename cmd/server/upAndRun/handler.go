@@ -278,3 +278,47 @@ func (app *application) renderSitemapWithConfig(config *viper.Viper) http.Handle
 		w.Write([]byte(msg))
 	}
 }
+
+func (app *application) renderSitemapStatus(w http.ResponseWriter, r *http.Request) {
+	jobId := r.PathValue("jobId")
+	if jobId == "" {
+		app.clientError(w, http.StatusBadRequest)
+		return
+	}
+	app.logger.Debug("Check job status", slog.String("jobId", jobId))
+
+	param := fmt.Sprintf("%s/%s", internal.SitemapCategory, jobId)
+	jobCaching, err := wrender.NewBoltCaching(app.db, param, wrender.CachedJobPrefix, false)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	content, err := jobCaching.Read()
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+	jobCache := wrender.SitemapJobCache{}
+	if err := json.Unmarshal([]byte(content), &jobCache); err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	if jobCache.IsExpired() {
+		jobCache.Status = internal.JobStatusTimeout
+	}
+	statusResp := shared.RenderStatusResp{
+		Status:  jobCache.Status,
+		Details: jobCache.Failed,
+	}
+	responseBody, err := json.Marshal(statusResp)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(responseBody)
+}
