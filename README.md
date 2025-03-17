@@ -51,8 +51,10 @@ curl -i -X GET -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/rende
 > Note: Currently implement in local build type only
 
 ```bash
-curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/renders?domain=www.target.com"
+curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/admin/renders"
 ```
+**Query Parameters**
+- **domain:** Show only caches under the given domain
 
 ### Note
 

@@ -193,21 +193,45 @@ func (c BoltCaching) List() ([]CacheContentInfo, error) {
 			return fmt.Errorf("root bucket %s not found", c.RootBucket)
 		}
 
-		hostBucket := rootBucket.Bucket([]byte(c.HostBucket))
-		if hostBucket == nil {
-			return fmt.Errorf("host bucket %s not found", c.HostBucket)
+		buckets := []string{}
+		if c.HostBucket == "" {
+			cursor := rootBucket.Cursor()
+			for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
+				if bucket := rootBucket.Bucket(k); bucket == nil {
+					return fmt.Errorf(
+						"boltCache storage error: key %s in root bucket %s is not a bucket",
+						string(k),
+						c.RootBucket,
+					)
+				}
+				buckets = append(buckets, string(k))
+			}
+		} else {
+			buckets = append(buckets, c.HostBucket)
 		}
 
-		return hostBucket.ForEach(func(k, v []byte) error {
-			contents = append(
-				contents,
-				CacheContentInfo{
-					Content: CacheContent(v),
-					Path:    filepath.Join(c.RootBucket, c.HostBucket, string(k)),
-				},
-			)
-			return nil
-		})
+		var err error
+		for _, bucket := range buckets {
+			hostBucket := rootBucket.Bucket([]byte(bucket))
+			if hostBucket == nil {
+				return fmt.Errorf("host bucket %s not found", c.HostBucket)
+			}
+
+			err = hostBucket.ForEach(func(k, v []byte) error {
+				contents = append(
+					contents,
+					CacheContentInfo{
+						Content: CacheContent(v),
+						Path:    filepath.Join(c.RootBucket, c.HostBucket, string(k)),
+					},
+				)
+				return nil
+			})
+			if err != nil {
+				break
+			}
+		}
+		return err
 	})
 	if err != nil {
 		return nil, err

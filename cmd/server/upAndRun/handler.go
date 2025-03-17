@@ -131,20 +131,25 @@ func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Reques
 		slog.String("request", r.URL.String()),
 		slog.String("method", r.Method),
 	)
-	if domain == "" {
-		app.clientError(w, http.StatusBadRequest)
-		return
-	}
 
-	caching, err := wrender.NewBoltCaching(
-		app.db,
-		domain,
-		wrender.CachedPagePrefix,
-		true,
-	)
-	if err != nil {
-		app.serverError(w, r, err)
-		return
+	var caching wrender.BoltCaching
+	if domain == "" {
+		caching = wrender.BoltCaching{
+			DB:         app.db,
+			RootBucket: wrender.CachedPagePrefix,
+		}
+	} else {
+		var err error
+		caching, err = wrender.NewBoltCaching(
+			app.db,
+			domain,
+			wrender.CachedPagePrefix,
+			true,
+		)
+		if err != nil {
+			app.serverError(w, r, err)
+			return
+		}
 	}
 
 	cachesInfo, err := caching.List()
