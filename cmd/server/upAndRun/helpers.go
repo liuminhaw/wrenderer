@@ -1,12 +1,14 @@
 package upAndRun
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 
 	"github.com/boltdb/bolt"
 	"github.com/liuminhaw/wrenderer/cmd/worker/upAndRunWorker"
+	"github.com/liuminhaw/wrenderer/wrender"
 )
 
 type application struct {
@@ -37,4 +39,47 @@ func (app *application) serverError(w http.ResponseWriter, r *http.Request, err 
 // to the user.
 func (app *application) clientError(w http.ResponseWriter, status int) {
 	http.Error(w, http.StatusText(status), status)
+}
+
+func listCaches[T any](
+	db *bolt.DB,
+	cachePrefix string,
+	queryString string,
+	conversion func([]wrender.CacheContentInfo) ([]T, error),
+) ([]byte, error) {
+	var caching wrender.BoltCaching
+	if queryString == "" {
+		caching = wrender.BoltCaching{
+			DB:         db,
+			RootBucket: cachePrefix,
+		}
+	} else {
+		var err error
+		caching, err = wrender.NewBoltCaching(
+			db,
+			queryString,
+			cachePrefix,
+			true,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	cachesInfo, err := caching.List()
+	if err != nil {
+		return nil, err
+	}
+	caches, err := conversion(cachesInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	cachesResponse := renderedCachesResponse{Caches: caches}
+	response, err := json.Marshal(cachesResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
 }

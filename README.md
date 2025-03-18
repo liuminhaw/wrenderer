@@ -56,6 +56,17 @@ curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/admin/renders"
 **Query Parameters**
 - **domain:** Show only caches under the given domain
 
+### List job caches
+
+> Note: Currently implement in local build type only
+
+```bash
+curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/admin/jobs"
+```
+**Query Parameters**
+- **category:** Show only job caches under the given category type
+    - Available values: `sitemap`
+
 ### Note
 
 url passed to `url` parameter should be encoded for parsing to work correctly

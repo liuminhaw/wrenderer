@@ -14,6 +14,17 @@ type CacheContentInfo struct {
 	Path    string
 }
 
+// type CacheContentInfos[T any] struct {
+// 	Infos       []CacheContentInfo
+// 	prefix      string
+// 	queryString string
+// 	conversion  func([]CacheContentInfo) ([]T, error)
+// }
+//
+// func (c CacheContentInfos[T]) ListCaches() ([]T, error) {
+// 	return nil, nil
+// }
+
 type Caches interface {
 	IsExpired() bool
 }
@@ -120,6 +131,32 @@ func (c *SitemapJobCache) Update(caching Caching, status string) error {
 	}
 
 	return caching.Update(CacheContent(data))
+}
+
+type JobCachedInfo struct {
+	Path    string    `json:"path"`
+	Status  string    `json:"status"`
+	Created time.Time `json:"created"`
+	Expires time.Time `json:"expires"`
+}
+
+func JobsCachesConversion(cachesInfo []CacheContentInfo) ([]JobCachedInfo, error) {
+	var jCachesInfo []JobCachedInfo
+
+	for _, info := range cachesInfo {
+		var jCache SitemapJobCache
+		if err := json.Unmarshal(info.Content, &jCache); err != nil {
+			return nil, err
+		}
+		jCachesInfo = append(jCachesInfo, JobCachedInfo{
+			Path:    info.Path,
+			Status:  jCache.Status,
+			Created: jCache.Created,
+			Expires: jCache.Expires,
+		})
+	}
+
+	return jCachesInfo, nil
 }
 
 type expiredCache struct {

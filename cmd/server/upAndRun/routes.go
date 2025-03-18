@@ -16,6 +16,7 @@ func (app *application) routes() *http.ServeMux {
 	mux.HandleFunc("GET /render/sitemap/{jobId}/status", app.renderSitemapStatus)
 	// admin routes
 	mux.HandleFunc("GET /admin/renders", app.listRenderedCaches)
+	mux.HandleFunc("GET /admin/jobs", app.listJobCaches)
 
 	return mux
 }

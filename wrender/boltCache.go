@@ -222,7 +222,7 @@ func (c BoltCaching) List() ([]CacheContentInfo, error) {
 					contents,
 					CacheContentInfo{
 						Content: CacheContent(v),
-						Path:    filepath.Join(c.RootBucket, c.HostBucket, string(k)),
+						Path:    filepath.Join(c.RootBucket, bucket, string(k)),
 					},
 				)
 				return nil

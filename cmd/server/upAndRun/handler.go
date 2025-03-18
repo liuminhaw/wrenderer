@@ -119,62 +119,6 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 	}
 }
 
-type renderedCachesResponse struct {
-	Caches []wrender.PageCachedInfo `json:"caches"`
-}
-
-func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Request) {
-	// Get query parameters
-	domain := r.URL.Query().Get("domain")
-	app.logger.Info(
-		fmt.Sprintf("domain: %s", domain),
-		slog.String("request", r.URL.String()),
-		slog.String("method", r.Method),
-	)
-
-	var caching wrender.BoltCaching
-	if domain == "" {
-		caching = wrender.BoltCaching{
-			DB:         app.db,
-			RootBucket: wrender.CachedPagePrefix,
-		}
-	} else {
-		var err error
-		caching, err = wrender.NewBoltCaching(
-			app.db,
-			domain,
-			wrender.CachedPagePrefix,
-			true,
-		)
-		if err != nil {
-			app.serverError(w, r, err)
-			return
-		}
-	}
-
-	cachesInfo, err := caching.List()
-	if err != nil {
-		app.serverError(w, r, err)
-		return
-	}
-	pageCaches, err := wrender.PagesCachesConversion(cachesInfo)
-	if err != nil {
-		app.serverError(w, r, err)
-		return
-	}
-
-	cachesResponse := renderedCachesResponse{Caches: pageCaches}
-	response, err := json.Marshal(cachesResponse)
-	if err != nil {
-		app.serverError(w, r, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(response)
-}
-
 func (app *application) deleteRenderedCache(w http.ResponseWriter, r *http.Request) {
 	// Get query parameters
 	app.logger.Info(
@@ -310,7 +254,7 @@ func (app *application) renderSitemapStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if jobCache.IsExpired() {
+	if jobCache.Status != internal.JobStatusCompleted && jobCache.IsExpired() {
 		jobCache.Status = internal.JobStatusTimeout
 	}
 	statusResp := shared.RenderStatusResp{
@@ -326,4 +270,59 @@ func (app *application) renderSitemapStatus(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(responseBody)
+}
+
+type renderedCachesResponse struct {
+	Caches any `json:"caches"`
+}
+
+func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Request) {
+	// Get query parameters
+	domain := r.URL.Query().Get("domain")
+	app.logger.Info(
+		fmt.Sprintf("domain: %s", domain),
+		slog.String("request", r.URL.String()),
+		slog.String("method", r.Method),
+	)
+
+	response, err := listCaches(
+		app.db,
+		wrender.CachedPagePrefix,
+		domain,
+		wrender.PagesCachesConversion,
+	)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
+}
+
+func (app *application) listJobCaches(w http.ResponseWriter, r *http.Request) {
+	// Get query parameters
+	category := r.URL.Query().Get("category")
+	app.logger.Info(
+		"List rendered jobs",
+		slog.String("request", r.URL.String()),
+		slog.String("method", r.Method),
+		slog.String("query category", category),
+	)
+
+	response, err := listCaches(
+		app.db,
+		wrender.CachedJobPrefix,
+		category,
+		wrender.JobsCachesConversion,
+	)
+	if err != nil {
+		app.serverError(w, r, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(response)
 }
