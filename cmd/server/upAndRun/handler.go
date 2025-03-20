@@ -34,6 +34,16 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			return
 		}
 
+		if !internal.ValidUrl(url) {
+			app.logger.Info(
+				"Invalid url",
+				slog.String("url", url),
+				slog.String("request", r.URL.String()),
+			)
+			app.clientError(w, http.StatusBadRequest)
+			return
+		}
+
 		caching, err := wrender.NewBoltCaching(
 			app.db,
 			url,
@@ -245,6 +255,16 @@ func (app *application) renderSitemapStatus(w http.ResponseWriter, r *http.Reque
 
 	content, err := jobCaching.Read()
 	if err != nil {
+		var werr *wrender.CacheNotFoundError
+		if errors.As(err, &werr) {
+			app.logger.Info(
+				"Status of sitemap job not found",
+				slog.String("job id", jobId),
+				slog.String("error", err.Error()),
+			)
+			app.clientError(w, http.StatusNotFound)
+			return
+		}
 		app.serverError(w, r, err)
 		return
 	}
@@ -292,6 +312,16 @@ func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Reques
 		wrender.PagesCachesConversion,
 	)
 	if err != nil {
+		var werr *wrender.CacheNotFoundError
+		if errors.As(err, &werr) {
+			app.logger.Info(
+				"Listing rendered caches not found",
+				slog.String("request", r.URL.String()),
+				slog.String("error", err.Error()),
+			)
+			app.clientError(w, http.StatusNotFound)
+			return
+		}
 		app.serverError(w, r, err)
 		return
 	}
@@ -318,6 +348,16 @@ func (app *application) listJobCaches(w http.ResponseWriter, r *http.Request) {
 		wrender.JobsCachesConversion,
 	)
 	if err != nil {
+		var werr *wrender.CacheNotFoundError
+		if errors.As(err, &werr) {
+			app.logger.Info(
+				"Listing job caches not found",
+				slog.String("request", r.URL.String()),
+				slog.String("error", err.Error()),
+			)
+			app.clientError(w, http.StatusNotFound)
+			return
+		}
 		app.serverError(w, r, err)
 		return
 	}

@@ -52,15 +52,9 @@ func Sha256Key(input []byte) (string, error) {
 }
 
 func ValidUrl(str string) bool {
-	parsedUrl, err := url.Parse(str)
-	if err != nil {
-		return false
-	}
+	_, err := url.ParseRequestURI(str)
 
-	if parsedUrl.Scheme == "" || parsedUrl.Host == "" {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 func ParseSitemap(url string) ([]sitemapHelper.UrlEntry, error) {

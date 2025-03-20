@@ -79,17 +79,17 @@ func (c BoltCaching) Read() (CacheContent, error) {
 	err := c.DB.View(func(tx *bolt.Tx) error {
 		rootBucket := tx.Bucket([]byte(c.RootBucket))
 		if rootBucket == nil {
-			return fmt.Errorf("root bucket %s not found", c.RootBucket)
+			return fmt.Errorf("root bucket not found, path: %s", c.path())
 		}
 
 		hostBucket := rootBucket.Bucket([]byte(c.HostBucket))
 		if hostBucket == nil {
-			return fmt.Errorf("host bucket %s not found", c.HostBucket)
+			return fmt.Errorf("host bucket not found, path: %s", c.path())
 		}
 
 		data = hostBucket.Get([]byte(c.CachedKey))
 		if data == nil {
-			return fmt.Errorf("cached key %s not found", c.CachedKey)
+			return fmt.Errorf("cached key not found, path: %s", c.path())
 		}
 
 		return nil
@@ -135,6 +135,64 @@ func (c BoltCaching) Delete() error {
 			return c.cleanKey(hostBucket, []byte(c.CachedKey), false)
 		}
 	})
+}
+
+func (c BoltCaching) List() ([]CacheContentInfo, error) {
+	var contents []CacheContentInfo
+
+	err := c.DB.View(func(tx *bolt.Tx) error {
+		rootBucket := tx.Bucket([]byte(c.RootBucket))
+		if rootBucket == nil {
+			return &CacheNotFoundError{err: fmt.Errorf("root bucket not found, path: %s", c.path())}
+		}
+
+		buckets := []string{}
+		if c.HostBucket == "" {
+			cursor := rootBucket.Cursor()
+			for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
+				if bucket := rootBucket.Bucket(k); bucket == nil {
+					return fmt.Errorf(
+						"boltCache storage error: key %s in root bucket %s is not a bucket",
+						string(k),
+						c.RootBucket,
+					)
+				}
+				buckets = append(buckets, string(k))
+			}
+		} else {
+			buckets = append(buckets, c.HostBucket)
+		}
+
+		var err error
+		for _, bucket := range buckets {
+			hostBucket := rootBucket.Bucket([]byte(bucket))
+			if hostBucket == nil {
+				return &CacheNotFoundError{
+					err: fmt.Errorf("host bucket not found, path: %s", c.path()),
+				}
+			}
+
+			err = hostBucket.ForEach(func(k, v []byte) error {
+				contents = append(
+					contents,
+					CacheContentInfo{
+						Content: CacheContent(v),
+						Path:    filepath.Join(c.RootBucket, bucket, string(k)),
+					},
+				)
+				return nil
+			})
+			if err != nil {
+				break
+			}
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return contents, nil
 }
 
 func (c BoltCaching) cleanBucket(bucket *bolt.Bucket, expired bool) error {
@@ -184,58 +242,6 @@ func (c BoltCaching) cleanKey(bucket *bolt.Bucket, key []byte, expired bool) err
 	return nil
 }
 
-func (c BoltCaching) List() ([]CacheContentInfo, error) {
-	var contents []CacheContentInfo
-
-	err := c.DB.View(func(tx *bolt.Tx) error {
-		rootBucket := tx.Bucket([]byte(c.RootBucket))
-		if rootBucket == nil {
-			return fmt.Errorf("root bucket %s not found", c.RootBucket)
-		}
-
-		buckets := []string{}
-		if c.HostBucket == "" {
-			cursor := rootBucket.Cursor()
-			for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
-				if bucket := rootBucket.Bucket(k); bucket == nil {
-					return fmt.Errorf(
-						"boltCache storage error: key %s in root bucket %s is not a bucket",
-						string(k),
-						c.RootBucket,
-					)
-				}
-				buckets = append(buckets, string(k))
-			}
-		} else {
-			buckets = append(buckets, c.HostBucket)
-		}
-
-		var err error
-		for _, bucket := range buckets {
-			hostBucket := rootBucket.Bucket([]byte(bucket))
-			if hostBucket == nil {
-				return fmt.Errorf("host bucket %s not found", c.HostBucket)
-			}
-
-			err = hostBucket.ForEach(func(k, v []byte) error {
-				contents = append(
-					contents,
-					CacheContentInfo{
-						Content: CacheContent(v),
-						Path:    filepath.Join(c.RootBucket, bucket, string(k)),
-					},
-				)
-				return nil
-			})
-			if err != nil {
-				break
-			}
-		}
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return contents, nil
+func (c BoltCaching) path() string {
+	return filepath.Join(c.RootBucket, c.HostBucket, c.CachedKey)
 }
