@@ -51,11 +51,18 @@ func (h *Handler) StartCacheCleaner(interval int) {
 }
 
 func (h *Handler) cleanExpiredCache() error {
+	// Clean expired render caches
 	caching := wrender.BoltCaching{DB: h.DB, RootBucket: wrender.CachedPagePrefix}
-
 	if err := caching.Cleanup(); err != nil {
 		return err
 	}
+
+	// Clean expired job caches
+	caching = wrender.BoltCaching{DB: h.DB, RootBucket: wrender.CachedJobPrefix}
+	if err := caching.Cleanup(); err != nil {
+		return err
+	}
+
 	return nil
 }
 

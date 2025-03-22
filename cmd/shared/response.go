@@ -1,6 +1,7 @@
 package shared
 
 type RenderStatusResp struct {
-	Status  string   `json:"status"`
-	Details []string `json:"details,omitempty"`
+	Status     string   `json:"status"`
+	Details    []string `json:"details,omitempty"`
+	StatusCode int      `json:"-"`
 }

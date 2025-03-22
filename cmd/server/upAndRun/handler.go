@@ -253,6 +253,7 @@ func (app *application) renderSitemapStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	var statusResp shared.RenderStatusResp
 	content, err := jobCaching.Read()
 	if err != nil {
 		var werr *wrender.CacheNotFoundError
@@ -262,24 +263,29 @@ func (app *application) renderSitemapStatus(w http.ResponseWriter, r *http.Reque
 				slog.String("job id", jobId),
 				slog.String("error", err.Error()),
 			)
-			app.clientError(w, http.StatusNotFound)
+			statusResp = shared.RenderStatusResp{
+				Status:     internal.JobStatusUnknown,
+				StatusCode: http.StatusNotFound,
+			}
+		} else {
+			app.serverError(w, r, err)
 			return
 		}
-		app.serverError(w, r, err)
-		return
-	}
-	jobCache := wrender.SitemapJobCache{}
-	if err := json.Unmarshal([]byte(content), &jobCache); err != nil {
-		app.serverError(w, r, err)
-		return
-	}
+	} else {
+		jobCache := wrender.SitemapJobCache{}
+		if err := json.Unmarshal([]byte(content), &jobCache); err != nil {
+			app.serverError(w, r, err)
+			return
+		}
 
-	if jobCache.Status != internal.JobStatusCompleted && jobCache.IsExpired() {
-		jobCache.Status = internal.JobStatusTimeout
-	}
-	statusResp := shared.RenderStatusResp{
-		Status:  jobCache.Status,
-		Details: jobCache.Failed,
+		if jobCache.Status != internal.JobStatusCompleted && jobCache.IsExpired() {
+			jobCache.Status = internal.JobStatusTimeout
+		}
+		statusResp = shared.RenderStatusResp{
+			Status:     jobCache.Status,
+			Details:    jobCache.Failed,
+			StatusCode: http.StatusOK,
+		}
 	}
 	responseBody, err := json.Marshal(statusResp)
 	if err != nil {
@@ -288,7 +294,7 @@ func (app *application) renderSitemapStatus(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(statusResp.StatusCode)
 	w.Write(responseBody)
 }
 
