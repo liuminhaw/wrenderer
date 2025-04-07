@@ -27,9 +27,6 @@ type Application struct {
 const (
 	JobKeyLength = 6
 
-	HtmlContentType  = "text/html"
-	PlainContentType = "text/plain"
-
 	timestampFile = "timestamp"
 )
 
@@ -41,7 +38,7 @@ const (
 // The cached object path will be returned if no error occurred, otherwise an error
 // will be returned.
 func (app *Application) RenderUrl(url string, existenceCheck bool) (string, error) {
-	render, err := wrender.NewWrender(url, wrender.CachedPagePrefix)
+	envConf, err := shared.LambdaReadEnv()
 	if err != nil {
 		return "", err
 	}
@@ -53,13 +50,29 @@ func (app *Application) RenderUrl(url string, existenceCheck bool) (string, erro
 	}
 	client := s3.NewFromConfig(cfg)
 
+	render, err := wrender.NewWrender(url, wrender.CachedPagePrefix)
+	if err != nil {
+		return "", err
+	}
+	caching := wrender.NewS3Caching(
+		client,
+		render.GetPrefixPath(),
+		render.CachePath,
+		wrender.S3CachingMeta{
+			Bucket:      envConf.S3BucketName,
+			Region:      envConf.S3BucketRegion,
+			ContentType: wrender.HtmlContentType,
+		},
+	)
+
+	// var exists bool
 	if existenceCheck {
-		exists, err := CheckObjectExists(client, render.CachePath)
+		exists, err := caching.Exists()
 		if err != nil {
 			return "", err
 		}
 		if exists {
-			return render.CachePath, nil
+			return caching.CachedPath, nil
 		}
 	}
 
@@ -76,20 +89,19 @@ func (app *Application) RenderUrl(url string, existenceCheck bool) (string, erro
 
 	// Upload rendered result to S3
 	contentReader := bytes.NewReader(content)
-	err = UploadToS3(client, render.CachePath, HtmlContentType, contentReader)
+	if err := caching.Update(contentReader); err != nil {
+		return "", err
+	}
+
+	return caching.CachedPath, nil
+}
+
+func (app *Application) RenderSitemap(url string) (string, error) {
+	envConf, err := shared.LambdaReadEnv()
 	if err != nil {
 		return "", err
 	}
 
-	return render.CachePath, nil
-}
-
-type workerQueuePayload struct {
-	TargetUrl string `json:"targetUrl"`
-	CacheKey  string `json:"cacheKey"`
-}
-
-func (app *Application) RenderSitemap(url string) (string, error) {
 	entries, err := internal.ParseSitemap(url)
 	if err != nil {
 		return "", err
@@ -103,31 +115,47 @@ func (app *Application) RenderSitemap(url string) (string, error) {
 	sqsClient := sqs.NewFromConfig(cfg)
 	s3Client := s3.NewFromConfig(cfg)
 
-	renderKey, err := wrender.RandomKey(JobKeyLength, JobKeyLength)
+	randomKey, err := wrender.RandomKey(JobKeyLength, JobKeyLength)
 	if err != nil {
 		return "", err
 	}
 
 	// Upload render timestamp to S3
-	jobCache := wrender.NewSqsJobCache("", renderKey, internal.SitemapCategory)
-	now := time.Now().UTC().Format(time.RFC3339)
-	if err := UploadToS3(
+	jobCache := wrender.NewSqsJobCache(
+		randomKey,
+		internal.SitemapCategory,
+		wrender.CachedJobPrefix,
+	)
+	caching := wrender.NewS3Caching(
 		s3Client,
-		filepath.Join(jobCache.KeyPath(), timestampFile),
-		PlainContentType,
-		bytes.NewReader([]byte(now)),
-	); err != nil {
+		jobCache.KeyPath(),
+		"",
+		wrender.S3CachingMeta{
+			Bucket:      envConf.S3BucketName,
+			Region:      envConf.S3BucketRegion,
+			ContentType: wrender.PlainContentType,
+		},
+	)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := caching.UpdateTo(bytes.NewReader([]byte(now)), timestampFile); err != nil {
 		return "", err
 	}
 
+	queue := internal.Queue{
+		Client: sqsClient,
+		Url:    envConf.SqsUrl,
+	}
 	for _, entry := range entries {
 		app.Logger.Debug(fmt.Sprintf("Entry: %s", entry.Loc))
-		payload, err := json.Marshal(workerQueuePayload{TargetUrl: entry.Loc, CacheKey: renderKey})
+		payload, err := json.Marshal(
+			wrender.SqsJobPayload{TargetUrl: entry.Loc, RandomKey: randomKey},
+		)
 		if err != nil {
 			return "", err
 		}
 
-		messageId, err := sendMessageToQueue(sqsClient, string(payload))
+		messageId, err := queue.SendMessage(string(payload))
 		if err != nil {
 			return "", err
 		}
@@ -136,77 +164,91 @@ func (app *Application) RenderSitemap(url string) (string, error) {
 			slog.String("payload", string(payload)),
 		)
 
-		jobCache.MessageId = messageId
-		if err := UploadToS3(s3Client, jobCache.QueuedPath(), PlainContentType, bytes.NewReader(payload)); err != nil {
+		suffixPath := fmt.Sprintf("%s/%s", internal.JobStatusQueued, messageId)
+		if err := caching.UpdateTo(bytes.NewReader(payload), suffixPath); err != nil {
 			return "", err
 		}
 	}
 
-	return renderKey, nil
+	return randomKey, nil
 }
 
 func (app *Application) DeleteUrlRenderCache(url string) error {
+	envConfig, err := shared.LambdaReadEnv()
+	if err != nil {
+		return err
+	}
+
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		return err
 	}
-	sqsClient := s3.NewFromConfig(cfg)
+	s3Client := s3.NewFromConfig(cfg)
 
 	render, err := wrender.NewWrender(url, wrender.CachedPagePrefix)
 	if err != nil {
 		return err
 	}
+	caching := wrender.NewS3Caching(
+		s3Client,
+		render.GetPrefixPath(),
+		render.CachePath,
+		wrender.S3CachingMeta{
+			Bucket:      envConfig.S3BucketName,
+			Region:      envConfig.S3BucketRegion,
+			ContentType: wrender.HtmlContentType,
+		},
+	)
 
 	// Remove the object from s3
-	if err := DeleteObjectFromS3(sqsClient, render.CachePath); err != nil {
+	if err := caching.Delete(); err != nil {
 		return err
 	}
-	// Remove the host prefix if no more objects are left
-	prefix := fmt.Sprintf("%s/", render.GetPrefixPath(wrender.CachedPagePrefix))
-	empty, err := checkBucketPrefixEmpty(sqsClient, prefix)
+	empty, err := caching.IsEmptyPrefix("")
 	if err != nil {
 		return err
 	}
 	if empty {
-		if err := deletePrefixFromS3(sqsClient, prefix); err != nil {
-			return err
-		}
+		return caching.DeletePrefix()
 	}
 
 	return nil
 }
 
 func (app *Application) DeleteDomainRenderCache(domain string) error {
+	envConfig, err := shared.LambdaReadEnv()
+	if err != nil {
+		return err
+	}
+
 	cfg, err := config.LoadDefaultConfig(context.Background())
 	if err != nil {
 		return err
 	}
-	sqsClient := s3.NewFromConfig(cfg)
+	s3Client := s3.NewFromConfig(cfg)
 
 	render, err := wrender.NewWrender(domain, wrender.CachedPagePrefix)
 	if err != nil {
 		return err
 	}
+	caching := wrender.NewS3Caching(
+		s3Client,
+		render.GetPrefixPath(),
+		render.CachePath,
+		wrender.S3CachingMeta{
+			Bucket:      envConfig.S3BucketName,
+			Region:      envConfig.S3BucketRegion,
+			ContentType: wrender.HtmlContentType,
+		},
+	)
 
-	prefix := fmt.Sprintf("%s/", render.GetPrefixPath(wrender.CachedPagePrefix))
-	if err := deletePrefixFromS3(sqsClient, prefix); err != nil {
-		return err
-	}
-
-	return nil
+	return caching.DeletePrefix()
 }
 
 func (app *Application) CheckRenderStatus(key string) (shared.RenderStatusResp, error) {
-	var expirationInHours int
-	var err error
-	expirationConfig, exists := os.LookupEnv("JOB_EXPIRATION_IN_HOURS")
-	if !exists {
-		expirationInHours = 1
-	} else {
-		expirationInHours, err = strconv.Atoi(expirationConfig)
-		if err != nil {
-			return shared.RenderStatusResp{}, err
-		}
+	envConf, err := shared.LambdaReadEnv()
+	if err != nil {
+		return shared.RenderStatusResp{}, err
 	}
 
 	cfg, err := config.LoadDefaultConfig(context.Background())
@@ -215,22 +257,33 @@ func (app *Application) CheckRenderStatus(key string) (shared.RenderStatusResp, 
 	}
 	client := s3.NewFromConfig(cfg)
 
-	jobCache := wrender.NewSqsJobCache("", key, internal.SitemapCategory)
-	queueEmpty, err := checkBucketPrefixEmpty(client, jobCache.QueuedPath())
+	jobCache := wrender.NewSqsJobCache(key, internal.SitemapCategory, wrender.CachedJobPrefix)
+	caching := wrender.NewS3Caching(
+		client,
+		jobCache.KeyPath(),
+		filepath.Join(jobCache.KeyPath(), timestampFile),
+		wrender.S3CachingMeta{
+			Bucket:      envConf.S3BucketName,
+			Region:      envConf.S3BucketRegion,
+			ContentType: wrender.PlainContentType,
+		},
+	)
+
+	queueEmpty, err := caching.IsEmptyPrefix(internal.JobStatusQueued)
 	if err != nil {
 		return shared.RenderStatusResp{}, err
 	}
-	processEmpty, err := checkBucketPrefixEmpty(client, jobCache.ProcessPath())
+	processEmpty, err := caching.IsEmptyPrefix(internal.JobStatusProcessing)
 	if err != nil {
 	}
-	failureEmpty, err := checkBucketPrefixEmpty(client, jobCache.FailurePath())
+	failureEmpty, err := caching.IsEmptyPrefix(internal.JobStatusFailed)
 	if err != nil {
 		return shared.RenderStatusResp{}, err
 	}
 
 	// Read job timestamp record
 	now := time.Now().UTC()
-	timestamp, err := readObjectFromS3(client, filepath.Join(jobCache.KeyPath(), timestampFile))
+	timestamp, err := caching.Read()
 	if err != nil {
 		return shared.RenderStatusResp{}, err
 	}
@@ -238,7 +291,7 @@ func (app *Application) CheckRenderStatus(key string) (shared.RenderStatusResp, 
 	if err != nil {
 		return shared.RenderStatusResp{}, err
 	}
-	if now.Sub(parsedTime) > time.Duration(expirationInHours)*time.Hour {
+	if now.Sub(parsedTime) > time.Duration(envConf.JobExpirationInHours)*time.Hour {
 		return shared.RenderStatusResp{Status: internal.JobStatusTimeout}, nil
 	}
 
@@ -246,19 +299,15 @@ func (app *Application) CheckRenderStatus(key string) (shared.RenderStatusResp, 
 		return shared.RenderStatusResp{Status: internal.JobStatusProcessing}, nil
 	} else if !failureEmpty {
 		failureResp := shared.RenderStatusResp{Status: internal.JobStatusFailed, Details: []string{}}
-		failureKeys, err := ListObjectsFromS3(client, jobCache.FailurePath())
+		failureContents, err := caching.List(internal.JobStatusFailed)
 		if err != nil {
 			return shared.RenderStatusResp{}, err
 		}
-		for _, key := range failureKeys {
-			app.Logger.Debug(fmt.Sprintf("Failure key: %s", key))
-			content, err := readObjectFromS3(client, key)
-			if err != nil {
-				return shared.RenderStatusResp{}, err
-			}
+		for _, content := range failureContents {
+			app.Logger.Debug(fmt.Sprintf("Failure object key: %s", content.Path))
 
-			var queuePayload workerQueuePayload
-			if err := json.Unmarshal(content, &queuePayload); err != nil {
+			var queuePayload wrender.SqsJobPayload
+			if err := json.Unmarshal(content.Content, &queuePayload); err != nil {
 				return shared.RenderStatusResp{}, err
 			}
 			failureResp.Details = append(failureResp.Details, queuePayload.TargetUrl)

@@ -226,6 +226,8 @@ Resources:
         Variables:
           S3_BUCKET_NAME: !Ref WrendererBucket
           S3_BUCKET_REGION: !Ref AWS::Region
+          SQS_WORKER_QUEUE: !Ref WrendererWorkerQueue
+          JOB_EXPIRATION_IN_HOURS: !Ref WrendererJobExpirationInHours
           WRENDERER_WINDOW_WIDTH: !Ref WrendererWindowWidth
           WRENDERER_WINDOW_HEIGHT: !Ref WrendererWindowHeight
           WRENDERER_IDLE_TYPE: !Ref WrendererIdleType

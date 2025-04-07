@@ -1,7 +1,9 @@
 package wrender
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/liuminhaw/wrenderer/internal"
@@ -13,17 +15,6 @@ type CacheContentInfo struct {
 	Content CacheContent
 	Path    string
 }
-
-// type CacheContentInfos[T any] struct {
-// 	Infos       []CacheContentInfo
-// 	prefix      string
-// 	queryString string
-// 	conversion  func([]CacheContentInfo) ([]T, error)
-// }
-//
-// func (c CacheContentInfos[T]) ListCaches() ([]T, error) {
-// 	return nil, nil
-// }
 
 type Caches interface {
 	IsExpired() bool
@@ -73,7 +64,7 @@ func (p *PageCached) Update(caching Caching, content []byte, compressed bool) er
 		return err
 	}
 
-	return caching.Update(CacheContent(data))
+	return caching.Update(bytes.NewReader(data))
 }
 
 type PageCachedInfo struct {
@@ -130,7 +121,31 @@ func (c *SitemapJobCache) Update(caching Caching, status string) error {
 		return err
 	}
 
-	return caching.Update(CacheContent(data))
+	return caching.Update(bytes.NewReader(data))
+}
+
+type SqsJobPayload struct {
+	TargetUrl string `json:"targetUrl"`
+	RandomKey string `json:"randomKey"`
+}
+
+type SqsJobCache struct {
+	MessageId string
+	Key       string
+	Category  string
+	Prefix    string
+}
+
+func NewSqsJobCache(key, category, cachedPrefix string) *SqsJobCache {
+	return &SqsJobCache{
+		Key:      key,
+		Category: category,
+		Prefix:   cachedPrefix,
+	}
+}
+
+func (c *SqsJobCache) KeyPath() string {
+	return fmt.Sprintf("%s/%s/%s", c.Prefix, c.Category, c.Key)
 }
 
 type JobCachedInfo struct {

@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/liuminhaw/wrenderer/cmd/shared"
 	"github.com/liuminhaw/wrenderer/internal"
 	"github.com/liuminhaw/wrenderer/internal/application/lambdaApp"
 	"github.com/liuminhaw/wrenderer/wrender"
@@ -18,11 +20,6 @@ import (
 
 type handler struct {
 	logger *slog.Logger
-}
-
-type workerQueuePayload struct {
-	TargetUrl string `json:"targetUrl"`
-	CacheKey  string `json:"cacheKey"`
 }
 
 func lambdaHandler(event events.SQSEvent) error {
@@ -44,8 +41,14 @@ func lambdaHandler(event events.SQSEvent) error {
 }
 
 func (h *handler) sitemapHandler(event events.SQSEvent) error {
+	envConf, err := shared.LambdaReadEnv()
+	if err != nil {
+		h.logger.Error(fmt.Sprintf("Failed to read env: %v", err))
+		return err
+	}
+
 	for _, message := range event.Records {
-		var payload workerQueuePayload
+		var payload wrender.SqsJobPayload
 		if err := json.Unmarshal([]byte(message.Body), &payload); err != nil {
 			h.logger.Error(
 				"Failed to unmarshal message",
@@ -57,7 +60,7 @@ func (h *handler) sitemapHandler(event events.SQSEvent) error {
 
 		h.logger.Debug(
 			fmt.Sprintf("Processing url: %s", payload.TargetUrl),
-			slog.String("cache key", payload.CacheKey),
+			slog.String("cache key", payload.RandomKey),
 			slog.String("id", message.MessageId),
 		)
 
@@ -72,41 +75,50 @@ func (h *handler) sitemapHandler(event events.SQSEvent) error {
 		s3Client := s3.NewFromConfig(cfg)
 
 		jobCache := wrender.NewSqsJobCache(
-			message.MessageId,
-			payload.CacheKey,
+			payload.RandomKey,
 			internal.SitemapCategory,
+			wrender.CachedJobPrefix,
+		)
+		// Tracing current caching state: start with queued
+		caching := wrender.NewS3Caching(
+			s3Client,
+			jobCache.KeyPath(),
+			filepath.Join(jobCache.KeyPath(), internal.JobStatusQueued, message.MessageId),
+			wrender.S3CachingMeta{
+				Bucket:      envConf.S3BucketName,
+				Region:      envConf.S3BucketRegion,
+				ContentType: wrender.PlainContentType,
+			},
 		)
 
 		// move job cache from queued to process
-		if err := lambdaApp.UploadToS3(
-			s3Client,
-			jobCache.ProcessPath(),
-			lambdaApp.PlainContentType,
-			bytes.NewReader([]byte(message.Body)),
-		); err != nil {
+		suffixPath := filepath.Join(internal.JobStatusProcessing, message.MessageId)
+		if err := caching.UpdateTo(bytes.NewReader([]byte(message.Body)), suffixPath); err != nil {
 			return h.workerError(message, err)
 		}
-		if err := lambdaApp.DeleteObjectFromS3(s3Client, jobCache.QueuedPath()); err != nil {
+		if err := caching.Delete(); err != nil {
 			return h.workerError(message, err)
 		}
+		// caching state update to processing
+		caching.CachedPath = filepath.Join(
+			jobCache.KeyPath(),
+			internal.JobStatusProcessing,
+			message.MessageId,
+		)
 
 		// render the target url
 		_, err = app.RenderUrl(payload.TargetUrl, false)
 		if err != nil {
 			// Move job cache from process to failure
-			if err := lambdaApp.UploadToS3(
-				s3Client,
-				jobCache.FailurePath(),
-				lambdaApp.PlainContentType,
-				bytes.NewReader([]byte(message.Body)),
-			); err != nil {
+			suffixPath := filepath.Join(internal.JobStatusFailed, message.MessageId)
+			if err := caching.UpdateTo(bytes.NewReader([]byte(message.Body)), suffixPath); err != nil {
 				return h.workerError(message, err)
 			}
-			if err := lambdaApp.DeleteObjectFromS3(s3Client, jobCache.ProcessPath()); err != nil {
+			if err := caching.Delete(); err != nil {
 				return h.workerError(message, err)
 			} else {
 				h.logger.Debug(
-					fmt.Sprintf("Job cache %s deleted", jobCache.ProcessPath()),
+					fmt.Sprintf("Job cache %s deleted", caching.CachedPath),
 				)
 			}
 
@@ -114,17 +126,17 @@ func (h *handler) sitemapHandler(event events.SQSEvent) error {
 		}
 
 		// Clean job cache
-		if err := lambdaApp.DeleteObjectFromS3(s3Client, jobCache.ProcessPath()); err != nil {
+		if err := caching.Delete(); err != nil {
 			return h.workerError(message, err)
 		} else {
 			h.logger.Debug(
-				fmt.Sprintf("Job cache %s deleted", jobCache.ProcessPath()),
+				fmt.Sprintf("Job cache %s deleted", caching.CachedPath),
 			)
 		}
 
 		h.logger.Debug(
 			fmt.Sprintf("target url: %s processed", payload.TargetUrl),
-			slog.String("cache key", payload.CacheKey),
+			slog.String("cache key", payload.RandomKey),
 			slog.String("id", message.MessageId),
 		)
 	}

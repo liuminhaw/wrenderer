@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -8,7 +8,8 @@ RUN go mod download
 COPY . .
 
 RUN go build -o wrenderer ./cmd/server/
-RUN go build -o wrenderer-worker ./cmd/worker/
+
+RUN go build -o wrenderer-worker ./cmd/worker/awsLambdaWorker/
 
 FROM chromedp/headless-shell:stable
 

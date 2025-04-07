@@ -3,14 +3,11 @@ package wrender
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
 	"github.com/boltdb/bolt"
-)
-
-type (
-	CacheType int
 )
 
 // BoltCaching is a struct that holds the path to the cached file.
@@ -55,7 +52,7 @@ func NewBoltCaching(
 }
 
 // Update method updates / creates the cache with the given data.
-func (c BoltCaching) Update(data CacheContent) error {
+func (c BoltCaching) Update(reader io.Reader) error {
 	return c.DB.Update(func(tx *bolt.Tx) error {
 		rootBucket, err := tx.CreateBucketIfNotExists([]byte(c.RootBucket))
 		if err != nil {
@@ -67,8 +64,17 @@ func (c BoltCaching) Update(data CacheContent) error {
 			return err
 		}
 
+        data, err := io.ReadAll(reader)
+        if err != nil {
+            return err
+        }
+
 		return hostBucket.Put(CacheContent(c.CachedKey), data)
 	})
+}
+
+func (c BoltCaching) UpdateTo(reader io.Reader, suffixPath string) error {
+	return fmt.Errorf("skip implementation")
 }
 
 // Read method reads the cached content from the bolt database cache file under
