@@ -5,105 +5,27 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"regexp"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/liuminhaw/wrenderer/cmd/shared"
+	"github.com/liuminhaw/wrenderer/cmd/shared/lambdaApp"
 	"github.com/liuminhaw/wrenderer/internal"
-	"github.com/liuminhaw/wrenderer/internal/application/lambdaApp"
+)
+
+const (
+	JobKeyLength  = 6
+	timestampFile = "timestamp"
 )
 
 type handler struct {
 	logger *slog.Logger
 }
 
-func LambdaHandler(event events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	handler := handler{}
-
-	debugMode, exists := os.LookupEnv("WRENDERER_DEBUG_MODE")
-	if !exists {
-		handler.logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
-	} else if debugMode == "true" {
-		handler.logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			AddSource: true,
-			Level:     slog.LevelDebug,
-		}))
-	} else {
-		handler.logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
-	}
-
-	handler.logger.Info(fmt.Sprintf("Request path: %s", event.Path))
-	handler.logger.Info(fmt.Sprintf("HTTP method: %s", event.HTTPMethod))
-
-	jobStatusPattern := regexp.MustCompile(
-		fmt.Sprintf("^/render/sitemap/[a-zA-Z]{6}-[a-zA-Z]{6}/status$"),
-	)
-	switch {
-	case "/render" == event.Path:
-		switch event.HTTPMethod {
-		case "GET":
-			handler.logger.Debug("request for rendering url")
-			return handler.renderUrlHandler(event)
-		case "DELETE":
-			handler.logger.Debug("request for deleting rendered cache")
-			return handler.deleteCacheHandler(event)
-		default:
-			return events.APIGatewayProxyResponse{
-				StatusCode: 405,
-				Headers: map[string]string{
-					"Content-Type": "text/plain",
-				},
-				Body: "Method Not Allowed",
-			}, nil
-		}
-	case "/render/sitemap" == event.Path:
-		switch event.HTTPMethod {
-		case "PUT":
-			handler.logger.Debug("request for rendering sitemap")
-			return handler.renderSitemapHandler(event)
-		default:
-			return events.APIGatewayProxyResponse{
-				StatusCode: 405,
-				Headers: map[string]string{
-					"Content-Type": "text/plain",
-				},
-				Body: "Method Not Allowed",
-			}, nil
-		}
-	case jobStatusPattern.MatchString(event.Path):
-		switch event.HTTPMethod {
-		case "GET":
-			handler.logger.Debug(
-				"request for checking job status",
-				slog.String("id", event.PathParameters["id"]),
-			)
-			return handler.checkJobStatusHandler(event)
-		default:
-			return events.APIGatewayProxyResponse{
-				StatusCode: 405,
-				Headers: map[string]string{
-					"Content-Type": "text/plain",
-				},
-				Body: "Method Not Allowed",
-			}, nil
-		}
-	default:
-		return events.APIGatewayProxyResponse{
-			StatusCode: 404,
-			Headers: map[string]string{
-				"Content-Type": "text/plain",
-			},
-			Body: "Not Found",
-		}, nil
-	}
-}
-
 type renderResponse struct {
 	Path string `json:"path"`
 }
 
-func (h *handler) renderUrlHandler(
+func (h *handler) getRenderHandleFunc(
 	event events.APIGatewayProxyRequest,
 ) (events.APIGatewayProxyResponse, error) {
 	urlParam := event.QueryStringParameters["url"]
@@ -116,10 +38,7 @@ func (h *handler) renderUrlHandler(
 		)
 	}
 
-	app := &lambdaApp.Application{
-		Logger: h.logger,
-	}
-	cachePath, err := app.RenderUrl(urlParam, true)
+	cachePath, err := lambdaApp.RenderUrl(urlParam, true, h.logger)
 	if err != nil {
 		return h.serverError(event, err, nil)
 	}
@@ -138,7 +57,7 @@ func (h *handler) renderUrlHandler(
 	}, nil
 }
 
-func (h *handler) deleteCacheHandler(
+func (h *handler) deleteRenderHandleFunc(
 	event events.APIGatewayProxyRequest,
 ) (events.APIGatewayProxyResponse, error) {
 	urlParam := event.QueryStringParameters["url"]
@@ -154,19 +73,15 @@ func (h *handler) deleteCacheHandler(
 		)
 	}
 
-	app := &lambdaApp.Application{
-		Logger: h.logger,
-	}
-
 	switch {
 	case domainParam != "":
 		h.logger.Info(fmt.Sprintf("Delete cache for domain: %s", domainParam))
-		if err := app.DeleteDomainRenderCache(domainParam); err != nil {
+		if err := deleteDomainRenderCache(domainParam); err != nil {
 			return h.serverError(event, err, nil)
 		}
 	case urlParam != "":
 		h.logger.Info(fmt.Sprintf("Delete cache with url: %s", urlParam))
-		if err := app.DeleteUrlRenderCache(urlParam); err != nil {
+		if err := deleteUrlRenderCache(urlParam); err != nil {
 			return h.serverError(event, err, nil)
 		}
 	default:
@@ -186,7 +101,7 @@ func (h *handler) deleteCacheHandler(
 	}, nil
 }
 
-func (h *handler) renderSitemapHandler(
+func (h *handler) putRenderSitemapHandleFunc(
 	event events.APIGatewayProxyRequest,
 ) (events.APIGatewayProxyResponse, error) {
 	h.logger.Debug(
@@ -212,10 +127,7 @@ func (h *handler) renderSitemapHandler(
 		)
 	}
 
-	app := &lambdaApp.Application{
-		Logger: h.logger,
-	}
-	location, err := app.RenderSitemap(payload.SitemapUrl)
+	location, err := renderSitemap(payload.SitemapUrl, h.logger)
 	if err != nil {
 		return h.serverError(event, err, nil)
 	}
@@ -238,14 +150,13 @@ type jobStatusResponse struct {
 	Details []string `json:"details,omitempty"`
 }
 
-func (h *handler) checkJobStatusHandler(
+func (h *handler) getRenderSitemapStatusHandleFunc(
 	event events.APIGatewayProxyRequest,
 ) (events.APIGatewayProxyResponse, error) {
 	jobId := event.PathParameters["id"]
 	h.logger.Debug("Check job status", slog.String("jobId", jobId))
 
-	app := &lambdaApp.Application{Logger: h.logger}
-	statusResp, err := app.CheckRenderStatus(jobId)
+	statusResp, err := checkRenderStatus(jobId, h.logger)
 	if err != nil {
 		return h.serverError(event, err, nil)
 	}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -10,11 +9,9 @@ import (
 	"path/filepath"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/liuminhaw/wrenderer/cmd/shared"
+	"github.com/liuminhaw/wrenderer/cmd/shared/lambdaApp"
 	"github.com/liuminhaw/wrenderer/internal"
-	"github.com/liuminhaw/wrenderer/internal/application/lambdaApp"
 	"github.com/liuminhaw/wrenderer/wrender"
 )
 
@@ -41,9 +38,9 @@ func lambdaHandler(event events.SQSEvent) error {
 }
 
 func (h *handler) sitemapHandler(event events.SQSEvent) error {
-	envConf, err := shared.LambdaReadEnv()
+	loader, err := shared.NewConfLoader(shared.S3Service)
 	if err != nil {
-		h.logger.Error(fmt.Sprintf("Failed to read env: %v", err))
+		h.logger.Error(fmt.Sprintf("Failed to create confLoader: %v", err))
 		return err
 	}
 
@@ -64,16 +61,6 @@ func (h *handler) sitemapHandler(event events.SQSEvent) error {
 			slog.String("id", message.MessageId),
 		)
 
-		app := &lambdaApp.Application{
-			Logger: h.logger,
-		}
-
-		cfg, err := config.LoadDefaultConfig(context.Background())
-		if err != nil {
-			return h.workerError(message, err)
-		}
-		s3Client := s3.NewFromConfig(cfg)
-
 		jobCache := wrender.NewSqsJobCache(
 			payload.RandomKey,
 			internal.SitemapCategory,
@@ -81,12 +68,12 @@ func (h *handler) sitemapHandler(event events.SQSEvent) error {
 		)
 		// Tracing current caching state: start with queued
 		caching := wrender.NewS3Caching(
-			s3Client,
+			loader.Clients.S3,
 			jobCache.KeyPath(),
 			filepath.Join(jobCache.KeyPath(), internal.JobStatusQueued, message.MessageId),
 			wrender.S3CachingMeta{
-				Bucket:      envConf.S3BucketName,
-				Region:      envConf.S3BucketRegion,
+				Bucket:      loader.EnvConf.S3BucketName,
+				Region:      loader.EnvConf.S3BucketRegion,
 				ContentType: wrender.PlainContentType,
 			},
 		)
@@ -107,7 +94,7 @@ func (h *handler) sitemapHandler(event events.SQSEvent) error {
 		)
 
 		// render the target url
-		_, err = app.RenderUrl(payload.TargetUrl, false)
+		_, err = lambdaApp.RenderUrl(payload.TargetUrl, false, h.logger)
 		if err != nil {
 			// Move job cache from process to failure
 			suffixPath := filepath.Join(internal.JobStatusFailed, message.MessageId)

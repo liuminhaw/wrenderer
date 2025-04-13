@@ -21,5 +21,5 @@ func run() {
 }
 
 func runInLambda() {
-	lambda.Start(awsLambda.LambdaHandler)
+	lambda.Start(awsLambda.Routes)
 }

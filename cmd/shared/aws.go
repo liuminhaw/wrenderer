@@ -1,10 +1,69 @@
 package shared
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/aws/aws-sdk-go/aws"
 )
+
+const (
+	S3Service  = "s3"
+	SqsService = "sqs"
+)
+
+type AwsClients struct {
+	S3  *s3.Client
+	Sqs *sqs.Client
+}
+
+func newAwsClients(services ...string) (*AwsClients, error) {
+	cfg, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	clients := &AwsClients{}
+	for _, service := range services {
+		switch service {
+		case S3Service:
+			clients.S3 = s3.NewFromConfig(cfg)
+		case SqsService:
+			clients.Sqs = sqs.NewFromConfig(cfg)
+		default:
+			return nil, fmt.Errorf("unsupported service: %s", service)
+		}
+	}
+
+	return clients, nil
+}
+
+type ConfLoader struct {
+	EnvConf EnvConfig
+	Clients *AwsClients
+}
+
+func NewConfLoader(services ...string) (*ConfLoader, error) {
+	envConfig, err := LambdaReadEnv()
+	if err != nil {
+		return nil, err
+	}
+
+	clients, err := newAwsClients(services...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ConfLoader{
+		EnvConf: envConfig,
+		Clients: clients,
+	}, nil
+}
 
 type EnvConfig struct {
 	S3BucketName         string
@@ -49,4 +108,22 @@ func LambdaReadEnv() (EnvConfig, error) {
 		JobExpirationInHours: expirationInHours,
 		SqsUrl:               queueUrl,
 	}, nil
+}
+
+type Queue struct {
+	Client *sqs.Client
+	Url    string
+}
+
+// SendMessage sends a message to the SQS queue and returns the message ID
+func (q Queue) SendMessage(message string) (string, error) {
+	resp, err := q.Client.SendMessage(context.Background(), &sqs.SendMessageInput{
+		QueueUrl:    aws.String(q.Url),
+		MessageBody: aws.String(message),
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return *resp.MessageId, nil
 }
