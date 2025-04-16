@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -64,18 +65,23 @@ func (c S3Caching) Delete() error {
 		Bucket: aws.String(c.Meta.Bucket),
 		Key:    aws.String(c.CachedPath),
 	})
-	// if err != nil {
-	// 	return err
-	// }
-
 	return err
 }
 
 // DeletePrefix deletes all objects matching CachedPrefix value from S3Caching variable.
 func (c S3Caching) DeletePrefix() error {
+	var prefix string
+	if c.CachedPrefix == "" {
+		return fmt.Errorf("empty CachedPrefix")
+	} else if !strings.HasSuffix(c.CachedPrefix, "/") {
+		prefix = c.CachedPrefix + "/"
+	} else {
+		prefix = c.CachedPrefix
+	}
+
 	input := &s3.ListObjectsV2Input{
 		Bucket: aws.String(c.Meta.Bucket),
-		Prefix: aws.String(c.CachedPrefix),
+		Prefix: aws.String(prefix),
 	}
 
 	for {
