@@ -2,6 +2,7 @@ package awsLambda
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/liuminhaw/wrenderer/cmd/shared"
 	"github.com/liuminhaw/wrenderer/cmd/shared/lambdaApp"
 	"github.com/liuminhaw/wrenderer/internal"
+	"github.com/liuminhaw/wrenderer/wrender"
 )
 
 const (
@@ -158,6 +160,19 @@ func (h *handler) getRenderSitemapStatusHandleFunc(
 
 	statusResp, err := checkRenderStatus(jobId, h.logger)
 	if err != nil {
+		var werr *wrender.CacheNotFoundError
+		if errors.As(err, &werr) {
+			h.logger.Info(
+				"Status of sitemap job not found",
+				slog.String("job id", jobId),
+				slog.String("error", err.Error()),
+			)
+			return h.clientError(
+				event,
+				http.StatusNotFound,
+				&respErrorMessage{Message: "status not found"},
+			)
+		}
 		return h.serverError(event, err, nil)
 	}
 

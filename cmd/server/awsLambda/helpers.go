@@ -80,7 +80,7 @@ func (h *handler) clientError(
 		)
 		respBody = `{"message":"Internal server error"}`
 	} else {
-		h.logger.Error(
+		h.logger.Info(
 			"client error",
 			slog.String("method", method),
 			slog.String("path", path),

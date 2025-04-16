@@ -166,6 +166,7 @@ func checkRenderStatus(key string, logger *slog.Logger) (shared.RenderStatusResp
 	}
 	processEmpty, err := caching.IsEmptyPrefix(internal.JobStatusProcessing)
 	if err != nil {
+		return shared.RenderStatusResp{}, err
 	}
 	failureEmpty, err := caching.IsEmptyPrefix(internal.JobStatusFailed)
 	if err != nil {
