@@ -173,6 +173,10 @@ func (app *application) deleteRenderedCache(w http.ResponseWriter, r *http.Reque
 		app.serverError(w, r, err)
 		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"message": "cache cleared"}`))
 }
 
 func (app *application) renderSitemapWithConfig(config *viper.Viper) http.HandlerFunc {
