@@ -40,6 +40,15 @@ func (h *handler) getRenderHandleFunc(
 		)
 	}
 
+	if !internal.ValidUrl(urlParam) {
+		h.logger.Info("Invalid url parameter", slog.String("url", urlParam))
+		return h.clientError(
+			event,
+			http.StatusBadRequest,
+			&respErrorMessage{Message: "Invalid url parameter"},
+		)
+	}
+
 	cachePath, err := lambdaApp.RenderUrl(urlParam, true, h.logger)
 	if err != nil {
 		return h.serverError(event, err, nil)
