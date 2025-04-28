@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 
 	"github.com/boltdb/bolt"
+	"github.com/liuminhaw/wrenderer/cmd/shared"
 	"github.com/liuminhaw/wrenderer/cmd/worker/upAndRunWorker"
 	"github.com/liuminhaw/wrenderer/wrender"
 )
@@ -37,8 +38,28 @@ func (app *application) serverError(w http.ResponseWriter, r *http.Request, err 
 
 // The clientError helper sends a specific status code and corresponding description
 // to the user.
-func (app *application) clientError(w http.ResponseWriter, status int) {
-	http.Error(w, http.StatusText(status), status)
+func (app *application) clientError(
+	w http.ResponseWriter,
+	status int,
+	message *shared.RespErrorMessage,
+) {
+	if message == nil {
+		message = &shared.RespErrorMessage{Message: http.StatusText(status)}
+	}
+	respMsg, err := json.Marshal(message)
+	if err != nil {
+		app.logger.Error("failed to marshal response message", slog.Any("message", message))
+		http.Error(
+			w,
+			http.StatusText(http.StatusInternalServerError),
+			http.StatusInternalServerError,
+		)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	w.Write([]byte(respMsg))
 }
 
 func listCaches[T any](

@@ -36,7 +36,7 @@ func (h *handler) getRenderHandleFunc(
 		return h.clientError(
 			event,
 			http.StatusBadRequest,
-			&respErrorMessage{Message: "Missing url parameter"},
+			&shared.RespErrorMessage{Message: "Missing url parameter"},
 		)
 	}
 
@@ -45,7 +45,7 @@ func (h *handler) getRenderHandleFunc(
 		return h.clientError(
 			event,
 			http.StatusBadRequest,
-			&respErrorMessage{Message: "Invalid url parameter"},
+			&shared.RespErrorMessage{Message: "Invalid url parameter"},
 		)
 	}
 
@@ -80,7 +80,7 @@ func (h *handler) deleteRenderHandleFunc(
 		return h.clientError(
 			event,
 			http.StatusBadRequest,
-			&respErrorMessage{Message: "one of url or domain parameter is required"},
+			&shared.RespErrorMessage{Message: "one of url or domain parameter is required"},
 		)
 	}
 
@@ -99,7 +99,7 @@ func (h *handler) deleteRenderHandleFunc(
 		return h.clientError(
 			event,
 			http.StatusBadRequest,
-			&respErrorMessage{Message: "one of url or domain parameter is required"},
+			&shared.RespErrorMessage{Message: "one of url or domain parameter is required"},
 		)
 	}
 
@@ -134,7 +134,7 @@ func (h *handler) putRenderSitemapHandleFunc(
 		return h.clientError(
 			event,
 			http.StatusBadRequest,
-			&respErrorMessage{Message: "Invalid sitemap url"},
+			&shared.RespErrorMessage{Message: "Invalid sitemap url"},
 		)
 	}
 
@@ -179,7 +179,7 @@ func (h *handler) getRenderSitemapStatusHandleFunc(
 			return h.clientError(
 				event,
 				http.StatusNotFound,
-				&respErrorMessage{Message: "status not found"},
+				&shared.RespErrorMessage{Message: "status not found"},
 			)
 		}
 		return h.serverError(event, err, nil)

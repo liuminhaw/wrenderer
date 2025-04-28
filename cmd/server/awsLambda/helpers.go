@@ -6,16 +6,13 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/liuminhaw/wrenderer/cmd/shared"
 )
-
-type respErrorMessage struct {
-	Message string `json:"message"`
-}
 
 func (h *handler) serverError(
 	event events.APIGatewayProxyRequest,
 	cause error,
-	message *respErrorMessage,
+	message *shared.RespErrorMessage,
 ) (events.APIGatewayProxyResponse, error) {
 	var (
 		method      = event.HTTPMethod
@@ -25,7 +22,7 @@ func (h *handler) serverError(
 	)
 
 	if message == nil {
-		message = &respErrorMessage{Message: "Internal server error"}
+		message = &shared.RespErrorMessage{Message: "Internal server error"}
 	}
 
 	var respBody string
@@ -59,7 +56,7 @@ func (h *handler) serverError(
 func (h *handler) clientError(
 	event events.APIGatewayProxyRequest,
 	status int,
-	message *respErrorMessage,
+	message *shared.RespErrorMessage,
 ) (events.APIGatewayProxyResponse, error) {
 	var (
 		method      = event.HTTPMethod
@@ -69,7 +66,7 @@ func (h *handler) clientError(
 	)
 
 	if message == nil {
-		message = &respErrorMessage{Message: "Client error"}
+		message = &shared.RespErrorMessage{Message: "Client error"}
 	}
 	var respBody string
 	respMsg, err := json.Marshal(*message)

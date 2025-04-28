@@ -30,7 +30,11 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 			slog.String("method", r.Method),
 		)
 		if url == "" {
-			app.clientError(w, http.StatusBadRequest)
+			app.clientError(
+				w,
+				http.StatusBadRequest,
+				&shared.RespErrorMessage{Message: "One of url or domain parameter is required"},
+			)
 			return
 		}
 
@@ -40,7 +44,11 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 				slog.String("url", url),
 				slog.String("request", r.URL.String()),
 			)
-			app.clientError(w, http.StatusBadRequest)
+			app.clientError(
+				w,
+				http.StatusBadRequest,
+				&shared.RespErrorMessage{Message: fmt.Sprintf("Invalid url: %s", url)},
+			)
 			return
 		}
 
@@ -111,7 +119,7 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 					return
 				}
 			default:
-				app.clientError(w, http.StatusTooManyRequests)
+				app.clientError(w, http.StatusTooManyRequests, nil)
 				return
 			}
 
@@ -144,11 +152,6 @@ func (app *application) deleteRenderedCache(w http.ResponseWriter, r *http.Reque
 		slog.String("domain param", domainParam),
 	)
 
-	if urlParam == "" && domainParam == "" {
-		app.clientError(w, http.StatusBadRequest)
-		return
-	}
-
 	var caching wrender.BoltCaching
 	var param string
 	var targetBucket bool
@@ -160,7 +163,11 @@ func (app *application) deleteRenderedCache(w http.ResponseWriter, r *http.Reque
 		param = urlParam
 		targetBucket = false
 	default:
-		app.clientError(w, http.StatusBadRequest)
+		app.clientError(
+			w,
+			http.StatusBadRequest,
+			&shared.RespErrorMessage{Message: "One of url or domain parameter is required"},
+		)
 		return
 	}
 
@@ -194,13 +201,21 @@ func (app *application) renderSitemapWithConfig(config *viper.Viper) http.Handle
 				"Failed to unmarhsal request body",
 				slog.String("request body", string(body)),
 			)
-			app.clientError(w, http.StatusBadRequest)
+			app.clientError(
+				w,
+				http.StatusBadRequest,
+				&shared.RespErrorMessage{Message: "Invalid request body"},
+			)
 			return
 		}
 
 		if !internal.ValidUrl(payload.SitemapUrl) {
 			app.logger.Info("Invalid sitemap url", slog.String("sitemap url", payload.SitemapUrl))
-			app.clientError(w, http.StatusBadRequest)
+			app.clientError(
+				w,
+				http.StatusBadRequest,
+				&shared.RespErrorMessage{Message: "Invalid sitemap url"},
+			)
 			return
 		}
 
@@ -227,7 +242,7 @@ func (app *application) renderSitemapWithConfig(config *viper.Viper) http.Handle
 				renderKey,
 			)
 		default:
-			app.clientError(w, http.StatusTooManyRequests)
+			app.clientError(w, http.StatusTooManyRequests, nil)
 			return
 		}
 
@@ -245,7 +260,11 @@ func (app *application) renderSitemapWithConfig(config *viper.Viper) http.Handle
 func (app *application) renderSitemapStatus(w http.ResponseWriter, r *http.Request) {
 	jobId := r.PathValue("jobId")
 	if jobId == "" {
-		app.clientError(w, http.StatusBadRequest)
+		app.clientError(
+			w,
+			http.StatusBadRequest,
+			&shared.RespErrorMessage{Message: "Missing jobId in request path"},
+		)
 		return
 	}
 	app.logger.Debug("Check job status", slog.String("jobId", jobId))
@@ -329,7 +348,7 @@ func (app *application) listRenderedCaches(w http.ResponseWriter, r *http.Reques
 				slog.String("request", r.URL.String()),
 				slog.String("error", err.Error()),
 			)
-			app.clientError(w, http.StatusNotFound)
+			app.clientError(w, http.StatusNotFound, nil)
 			return
 		}
 		app.serverError(w, r, err)
@@ -365,7 +384,7 @@ func (app *application) listJobCaches(w http.ResponseWriter, r *http.Request) {
 				slog.String("request", r.URL.String()),
 				slog.String("error", err.Error()),
 			)
-			app.clientError(w, http.StatusNotFound)
+			app.clientError(w, http.StatusNotFound, nil)
 			return
 		}
 		app.serverError(w, r, err)
