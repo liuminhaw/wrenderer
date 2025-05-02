@@ -15,6 +15,7 @@ userAgent = ""
 container = false
 headless = true
 timeout = 30
+idleType = "auto"
 
 [queue]
 capacity = 1

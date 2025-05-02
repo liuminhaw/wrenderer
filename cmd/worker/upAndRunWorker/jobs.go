@@ -73,10 +73,15 @@ func rendererOption(config *viper.Viper) *renderer.RendererOption {
 	config.SetDefault("renderer.headless", true)
 	config.SetDefault("renderer.userAgent", "")
 	config.SetDefault("renderer.timeout", 30)
+	config.SetDefault("renderer.idleType", "auto")
+
+	if config.GetString("renderer.idleType") == "" {
+		config.Set("renderer.idleType", "auto")
+	}
 
 	return &renderer.RendererOption{
 		BrowserOpts: renderer.BrowserConf{
-			IdleType:      "networkIdle",
+			IdleType:      config.GetString("renderer.idleType"),
 			Container:     config.GetBool("renderer.container"),
 			ChromiumDebug: config.GetBool("chromiumDebug"),
 		},

@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.37.13
 	github.com/aws/smithy-go v1.22.2
 	github.com/boltdb/bolt v1.3.1
-	github.com/liuminhaw/renderer v0.10.0
+	github.com/liuminhaw/renderer v0.11.0
 	github.com/liuminhaw/sitemapHelper v0.2.0
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.19.0

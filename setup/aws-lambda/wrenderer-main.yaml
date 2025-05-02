@@ -75,9 +75,10 @@ Parameters:
       - "false"
   WrendererIdleType:
     Type: String
-    Default: "networkIdle"
+    Default: "auto"
     Description: "Idle type considering page rendering is completed"
     AllowedValues:
+      - "auto"
       - "networkIdle"
       - "InteractiveTime"
   WrendererWindowWidth:
