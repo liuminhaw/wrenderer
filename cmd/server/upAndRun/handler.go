@@ -395,3 +395,6 @@ func (app *application) listJobCaches(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write(response)
 }
+
+// func (app *application) getConfig(w http.ResponseWriter, r *http.Request) {
+// }

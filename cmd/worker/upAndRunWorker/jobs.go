@@ -10,11 +10,12 @@ import (
 	"github.com/spf13/viper"
 )
 
-// func (app *application) startWorkers(workersCount int) {
-func (h *Handler) StartWorkers(workersCount int) {
+func (h *Handler) StartWorkers(vConfig *viper.Viper) {
+	workersCount := vConfig.GetInt("queue.workers")
+
 	// Render page worker
 	for i := range workersCount {
-		go h.renderPage(viper.GetViper(), i)
+		go h.renderPage(vConfig, i)
 	}
 
 	// Error listening worker
