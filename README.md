@@ -67,6 +67,14 @@ curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/admin/jobs"
 - **category:** Show only job caches under the given category type
     - Available values: `sitemap`
 
+### Show configuration settings
+
+> Note: Currently implement in local build type only
+
+```bash
+curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/admin/config"
+```
+
 ### Note
 
 url passed to `url` parameter should be encoded for parsing to work correctly
