@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/liuminhaw/renderer"
+	"github.com/liuminhaw/wrenderer/cmd/shared/localEnv"
 	"github.com/liuminhaw/wrenderer/wrender"
 	"github.com/spf13/viper"
 )
@@ -68,17 +69,7 @@ func (h *Handler) cleanExpiredCache() error {
 }
 
 func rendererOption(config *viper.Viper) *renderer.RendererOption {
-	config.SetDefault("renderer.windowWidth", 1920)
-	config.SetDefault("renderer.windowHeight", 1080)
-	config.SetDefault("renderer.container", false)
-	config.SetDefault("renderer.headless", true)
-	config.SetDefault("renderer.userAgent", "")
-	config.SetDefault("renderer.timeout", 30)
-	config.SetDefault("renderer.idleType", "auto")
-
-	if config.GetString("renderer.idleType") == "" {
-		config.Set("renderer.idleType", "auto")
-	}
+	localEnv.ConfigSetup(config)
 
 	return &renderer.RendererOption{
 		BrowserOpts: renderer.BrowserConf{

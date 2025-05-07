@@ -8,9 +8,9 @@ import (
 	"os"
 
 	"github.com/boltdb/bolt"
+	"github.com/liuminhaw/wrenderer/cmd/shared/localEnv"
 	"github.com/liuminhaw/wrenderer/cmd/worker/upAndRunWorker"
 	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 )
 
 func Start() error {
@@ -23,15 +23,8 @@ func Start() error {
 	pflag.Parse()
 
 	// Initialize a viper instance
-	vConfig := viper.New()
-
-	vConfig.SetConfigName("wrenderer")
-	vConfig.SetConfigType("toml")
-	vConfig.AddConfigPath(".")
-	vConfig.BindPFlags(pflag.CommandLine)
-
-	err := vConfig.ReadInConfig()
-	if err != nil {
+	vConfig := localEnv.InitConfig()
+	if err := localEnv.ConfigSetup(vConfig); err != nil {
 		log.Fatalf("Error reading config file: %s\n", err)
 	}
 
@@ -89,6 +82,3 @@ func Start() error {
 	}
 	return nil
 }
-
-// func initConfig() {
-// }

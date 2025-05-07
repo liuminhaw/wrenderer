@@ -17,7 +17,7 @@ func (app *application) routes(vConfig *viper.Viper) *http.ServeMux {
 	// admin routes
 	mux.HandleFunc("GET /admin/renders", app.listRenderedCaches)
 	mux.HandleFunc("GET /admin/jobs", app.listJobCaches)
-	// mux.HandleFunc("GET /admin/config", app.getConfig)
+	mux.HandleFunc("GET /admin/config", app.listConfigWithConfig(vConfig))
 
 	return mux
 }

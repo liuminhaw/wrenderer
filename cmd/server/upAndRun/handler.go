@@ -396,5 +396,18 @@ func (app *application) listJobCaches(w http.ResponseWriter, r *http.Request) {
 	w.Write(response)
 }
 
-// func (app *application) getConfig(w http.ResponseWriter, r *http.Request) {
-// }
+func (app *application) listConfigWithConfig(config *viper.Viper) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		settings := config.AllSettings()
+
+		output, err := json.Marshal(settings)
+		if err != nil {
+			app.serverError(w, r, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(output)
+	}
+}
