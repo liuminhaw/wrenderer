@@ -46,7 +46,7 @@ To check the status of the sitemap rendering operation, use the request path fro
 curl -i -X GET -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/render/sitemap/xxxxxx-xxxxxx/status"
 ```
 
-### List rendered caches
+### List rendered caches (admin only)
 
 > Note: Currently implement in local build type only
 
@@ -56,7 +56,7 @@ curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/admin/renders"
 **Query Parameters**
 - **domain:** Show only caches under the given domain
 
-### List job caches
+### List job caches (admin only)
 
 > Note: Currently implement in local build type only
 
@@ -67,7 +67,7 @@ curl -H 'x-api-key: YOUR-API-KEY' "https://wrenderer.example.com/admin/jobs"
 - **category:** Show only job caches under the given category type
     - Available values: `sitemap`
 
-### Show configuration settings
+### Show configuration settings (admin only)
 
 > Note: Currently implement in local build type only
 
