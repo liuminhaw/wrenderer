@@ -66,7 +66,7 @@ func configureCache(config *viper.Viper) {
 	config.Set("cache.enabled", config.GetBool("cache.enabled"))
 	config.Set("cache.type", cacheDefaultType)
 	if config.GetInt("cache.durationInMinutes") <= 0 {
-		config.Set("cache.durationInMinutes", 0)
+		config.Set("cache.durationInMinutes", cacheDefaultDuration)
 	}
 	if config.GetInt("cache.cleanupIntervalInMinutes") <= 0 {
 		config.Set("cache.cleanupIntervalInMinutes", cacheDefaultCleanupInterval)

@@ -83,7 +83,7 @@ func (app *application) pageRenderWithConfig(config *viper.Viper) http.HandlerFu
 		}
 		app.logger.Debug("Checking cache done", slog.String("url", url))
 
-		if exists && !expired {
+		if exists && !expired && config.GetBool("cache.enabled") {
 			app.logger.Debug(
 				"Cache exists and not expired",
 				slog.String("RootBucket", caching.RootBucket),
