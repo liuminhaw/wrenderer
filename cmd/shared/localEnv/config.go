@@ -6,7 +6,9 @@ import (
 )
 
 const (
-	serverDefaultPort = 8080
+	serverDefaultPort     = 8080
+	serverDefaultKey      = "defaultKey"
+	serverDefaultAdminKey = "adminKey"
 
 	cacheDefaultEnabled         = true
 	cacheDefaultType            = "boltdb"
@@ -46,6 +48,8 @@ func ConfigSetup(config *viper.Viper) error {
 
 	// Set default values
 	config.SetDefault("app.port", serverDefaultPort)
+	config.SetDefault("app.key", serverDefaultKey)
+	config.SetDefault("app.adminKey", serverDefaultAdminKey)
 
 	configureCache(config)
 	configureRenderer(config)

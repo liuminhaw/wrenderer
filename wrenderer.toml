@@ -1,5 +1,7 @@
 [app]
 port = 8080
+key = "defaultKey"
+adminKey = "adminKey"
 
 [cache]
 enabled = true

@@ -7,17 +7,19 @@ import (
 )
 
 // The routes() method returns a servemux containing our application routes.
-func (app *application) routes(vConfig *viper.Viper) *http.ServeMux {
+func (app *application) routes(vConfig *viper.Viper) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /render", app.pageRenderWithConfig(vConfig))
 	mux.HandleFunc("DELETE /render", app.deleteRenderedCache)
 	mux.HandleFunc("PUT /render/sitemap", app.renderSitemapWithConfig(vConfig))
 	mux.HandleFunc("GET /render/sitemap/{jobId}/status", app.renderSitemapStatus)
-	// admin routes
-	mux.HandleFunc("GET /admin/renders", app.listRenderedCaches)
-	mux.HandleFunc("GET /admin/jobs", app.listJobCaches)
-	mux.HandleFunc("GET /admin/config", app.listConfigWithConfig(vConfig))
 
-	return mux
+	// admin routes
+	adminCheck := authorizedAdmin(vConfig)
+	mux.Handle("GET /admin/renders", adminCheck(http.HandlerFunc(app.listRenderedCaches)))
+	mux.Handle("GET /admin/jobs", adminCheck(http.HandlerFunc(app.listJobCaches)))
+	mux.Handle("GET /admin/config", adminCheck(http.HandlerFunc(app.listConfigWithConfig(vConfig))))
+
+	return authorized(vConfig)(mux)
 }
