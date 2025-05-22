@@ -14,7 +14,7 @@ import (
 
 type application struct {
 	logger           *slog.Logger
-	port             int
+	addr             string
 	db               *bolt.DB
 	renderQueue      chan upAndRunWorker.RenderJob
 	sitemapSemaphore chan struct{}

@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	serverDefaultPort     = 8080
+	serverDefaultAddr     = ":8080"
 	serverDefaultKey      = "defaultKey"
 	serverDefaultAdminKey = "adminKey"
 
@@ -47,7 +47,7 @@ func ConfigSetup(config *viper.Viper) error {
 	}
 
 	// Set default values
-	config.SetDefault("app.port", serverDefaultPort)
+	config.SetDefault("app.addr", serverDefaultAddr)
 	config.SetDefault("app.key", serverDefaultKey)
 	config.SetDefault("app.adminKey", serverDefaultAdminKey)
 

@@ -14,6 +14,7 @@ import (
 )
 
 func Start() error {
+	pflag.String("app.addr", ":8080", "Server address")
 	pflag.Bool("debug", false, "Enable debug mode")
 	pflag.Bool(
 		"chromiumDebug",
@@ -57,7 +58,7 @@ func Start() error {
 	// Initialize a new instance of our application struct, containing the dependencies.
 	app := &application{
 		logger:           logger,
-		port:             vConfig.GetInt("app.port"),
+		addr:             vConfig.GetString("app.addr"),
 		db:               db,
 		renderQueue:      renderQueue,
 		sitemapSemaphore: semaphoreChan,
@@ -74,8 +75,15 @@ func Start() error {
 	workerHandler.StartWorkers(vConfig)
 	go workerHandler.StartCacheCleaner(vConfig.GetInt("cache.cleanupIntervalInMinutes"))
 
-	logger.Info("starting server", slog.Int("port", app.port))
-	err = http.ListenAndServe(fmt.Sprintf(":%d", app.port), app.routes(vConfig))
+	srv := &http.Server{
+		Addr:     app.addr,
+		Handler:  app.routes(vConfig),
+		ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
+	}
+
+	logger.Info("starting server", slog.String("address", app.addr))
+	// err = http.ListenAndServe(fmt.Sprintf(":%d", app.port), app.routes(vConfig))
+	err = srv.ListenAndServe()
 	if err != nil {
 		logger.Error(fmt.Sprintf("Error starting server: %s", err))
 		return err
