@@ -2,6 +2,9 @@
 addr = ":8080"
 key = "defaultKey"
 adminKey = "adminKey"
+tls = true
+tlsCert = "tls/cert.pem"
+tlsKey = "tls/key.pem"
 
 [cache]
 enabled = true

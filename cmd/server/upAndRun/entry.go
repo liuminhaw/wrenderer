@@ -1,6 +1,7 @@
 package upAndRun
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
 	"log/slog"
@@ -81,9 +82,23 @@ func Start() error {
 		ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
 
-	logger.Info("starting server", slog.String("address", app.addr))
-	// err = http.ListenAndServe(fmt.Sprintf(":%d", app.port), app.routes(vConfig))
-	err = srv.ListenAndServe()
+	logger.Info(
+		"starting server",
+		slog.String("address", app.addr),
+		slog.Bool("tls", vConfig.GetBool("app.tls")),
+	)
+	if vConfig.GetBool("app.tls") {
+		srv.TLSConfig = &tls.Config{
+			CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256},
+		}
+		err = srv.ListenAndServeTLS(
+			vConfig.GetString("app.tlsCert"),
+			vConfig.GetString("app.tlsKey"),
+		)
+	} else {
+		err = srv.ListenAndServe()
+	}
+
 	if err != nil {
 		logger.Error(fmt.Sprintf("Error starting server: %s", err))
 		return err

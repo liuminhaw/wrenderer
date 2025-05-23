@@ -9,6 +9,9 @@ const (
 	serverDefaultAddr     = ":8080"
 	serverDefaultKey      = "defaultKey"
 	serverDefaultAdminKey = "adminKey"
+	serverDefaultTLS      = false
+	serverDefaultCertFile = "tls/cert.pem"
+	serverDefaultKeyFile  = "tls/key.pem"
 
 	cacheDefaultEnabled         = true
 	cacheDefaultType            = "boltdb"
@@ -47,16 +50,22 @@ func ConfigSetup(config *viper.Viper) error {
 	}
 
 	// Set default values
-	config.SetDefault("app.addr", serverDefaultAddr)
-	config.SetDefault("app.key", serverDefaultKey)
-	config.SetDefault("app.adminKey", serverDefaultAdminKey)
-
+	configureApp(config)
 	configureCache(config)
 	configureRenderer(config)
 	configureQueue(config)
 	configureSemaphore(config)
 
 	return nil
+}
+
+func configureApp(config *viper.Viper) {
+	config.SetDefault("app.addr", serverDefaultAddr)
+	config.SetDefault("app.key", serverDefaultKey)
+	config.SetDefault("app.adminKey", serverDefaultAdminKey)
+	config.SetDefault("app.tls", serverDefaultTLS)
+	config.SetDefault("app.tlsCert", serverDefaultCertFile)
+	config.SetDefault("app.tlsKey", serverDefaultKeyFile)
 }
 
 func configureCache(config *viper.Viper) {
